@@ -71,7 +71,7 @@ async function connectWhatsApp() {
 
   const P = require('pino');
 
-  const agent = buildProxyAgent();
+  const agent = await buildProxyAgent();
 
   sock = makeWASocket({
     auth: state,
