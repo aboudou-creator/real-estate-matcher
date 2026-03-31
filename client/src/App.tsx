@@ -11,7 +11,7 @@ import HeatmapLayer from './HeatmapLayer';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 
-const API_URL = 'http://localhost:3002';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3002';
 const SENEGAL_CENTER: [number, number] = [14.6928, -17.4467];
 
 const offerIcon = new L.DivIcon({
