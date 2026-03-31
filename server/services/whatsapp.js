@@ -4,19 +4,21 @@
 // No auto-retry — user must manually request a new QR code.
 
 const path = require('path');
-const { SocksProxyAgent } = require('socks-proxy-agent');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 const { extractRealEstateInfo } = require('./extractor');
 const { processNewPost } = require('./dedup');
 const { findMatchesForProduct } = require('./matcher');
 
-// Build proxy agent from WA_PROXY_URL env var
+// Build proxy agent from WA_PROXY_URL env var (dynamic import — these packages are ESM-only)
 // Supports: socks5://user:pass@host:port  or  http://user:pass@host:port
-function buildProxyAgent() {
+async function buildProxyAgent() {
   const url = process.env.WA_PROXY_URL;
   if (!url) return undefined;
   console.log(`Using proxy for WhatsApp: ${url.replace(/\/\/.*@/, '//***@')}`);
-  if (url.startsWith('socks')) return new SocksProxyAgent(url);
+  if (url.startsWith('socks')) {
+    const { SocksProxyAgent } = await import('socks-proxy-agent');
+    return new SocksProxyAgent(url);
+  }
+  const { HttpsProxyAgent } = await import('https-proxy-agent');
   return new HttpsProxyAgent(url);
 }
 
