@@ -241,7 +241,7 @@ function App() {
       if (s.qrCode) setQrCode(s.qrCode);
     }).catch(() => {});
 
-    const socket = io(API_URL);
+    const socket = io(API_URL, { transports: ['websocket'] });
     socket.on('connect', () => console.log('Connected to server'));
     socket.on('qr', (qr: string) => setQrCode(qr));
     socket.on('connected', () => { setConnected(true); setQrCode(null); });
