@@ -1,0 +1,9 @@
+node_modules/
+.env
+server/auth_info/
+server/auth_info_test/
+dist/
+build/
+client/build/
+.DS_Store
+*.log
