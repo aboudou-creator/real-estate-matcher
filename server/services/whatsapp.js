@@ -98,14 +98,16 @@ async function connectWhatsApp() {
         setTimeout(() => connectWhatsApp(), 1000);
       } else {
         // All other disconnects: stop and wait for user to click button
-        if (isLoggedOut) {
-          console.log('WhatsApp logged out — click "Connect WhatsApp" to re-authenticate');
-        } else {
-          console.log('WhatsApp disconnected — click "Connect WhatsApp" to try again');
-        }
+        const reason = isLoggedOut
+          ? 'WhatsApp logged out — click "Connect WhatsApp" to re-authenticate'
+          : `Connection failed (code ${statusCode}) — click "Connect WhatsApp" to try again`;
+        console.log(reason);
         sock = null;
         qrCode = null;
-        if (io) io.emit('disconnected');
+        if (io) {
+          io.emit('disconnected');
+          io.emit('wa_error', reason);
+        }
       }
     } else if (connection === 'open') {
       console.log(`✅ WhatsApp connected as ${sock.user?.id}`);

@@ -195,6 +195,7 @@ function App() {
   const [heatmapPoints, setHeatmapPoints] = useState<HeatmapPoint[]>([]);
   const [connected, setConnected] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
+  const [waStatus, setWaStatus] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('products');
   const [filter, setFilter] = useState<FilterType>('all');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
@@ -243,9 +244,10 @@ function App() {
 
     const socket = io(API_URL, { transports: ['websocket'] });
     socket.on('connect', () => console.log('Connected to server'));
-    socket.on('qr', (qr: string) => setQrCode(qr));
-    socket.on('connected', () => { setConnected(true); setQrCode(null); });
+    socket.on('qr', (qr: string) => { setQrCode(qr); setWaStatus('QR code ready — scan with WhatsApp'); });
+    socket.on('connected', () => { setConnected(true); setQrCode(null); setWaStatus('Connected to WhatsApp'); });
     socket.on('disconnected', () => { setConnected(false); setQrCode(null); });
+    socket.on('wa_error', (msg: string) => setWaStatus(msg));
     socket.on('newPost', (post: Post) => setPosts(prev => [post, ...prev]));
     socket.on('newMatch', (match: Match) => setMatches(prev => [match, ...prev]));
     return () => { socket.close(); };
@@ -731,10 +733,19 @@ function App() {
               <span>{connected ? 'Connected to WhatsApp' : 'WhatsApp Not Connected'}</span>
               {!connected && !qrCode && (
                 <button className="btn-reconnect" onClick={() => {
-                  fetch(`${API_URL}/api/whatsapp/connect`, { method: 'POST' }).catch(() => {});
+                  setWaStatus('Connecting to WhatsApp...');
+                  fetch(`${API_URL}/api/whatsapp/connect`, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(d => { if (!d.ok) setWaStatus(d.message); })
+                    .catch(() => setWaStatus('Failed to reach server'));
                 }}>Connect WhatsApp</button>
               )}
             </div>
+            {waStatus && (
+              <div style={{ padding: '8px 0', color: connected ? '#22c55e' : '#f59e0b', fontSize: 14 }}>
+                {waStatus}
+              </div>
+            )}
             {qrCode && (
               <div className="qr-section">
                 <p>Scan this QR code with WhatsApp on your phone</p>
