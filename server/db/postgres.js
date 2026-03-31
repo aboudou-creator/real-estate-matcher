@@ -1,12 +1,19 @@
 const { Pool } = require('pg');
 
-const pool = new Pool({
-  user: process.env.PG_USER || process.env.USER,
-  host: process.env.PG_HOST || 'localhost',
-  database: process.env.PG_DATABASE || 'real_estate_matcher',
-  password: process.env.PG_PASSWORD || '',
-  port: process.env.PG_PORT || 5432,
-});
+const poolConfig = process.env.DATABASE_URL
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    }
+  : {
+      user: process.env.PG_USER || process.env.USER,
+      host: process.env.PG_HOST || 'localhost',
+      database: process.env.PG_DATABASE || 'real_estate_matcher',
+      password: process.env.PG_PASSWORD || '',
+      port: process.env.PG_PORT || 5432,
+    };
+
+const pool = new Pool(poolConfig);
 
 async function initDB() {
   const client = await pool.connect();

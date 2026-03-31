@@ -1,0 +1,21 @@
+app = "real-estate-matcher-api"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3002"
+  NODE_ENV = "production"
+  WHATSAPP_ENABLED = "true"
+
+[http_service]
+  internal_port = 3002
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
