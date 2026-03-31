@@ -728,11 +728,11 @@ function App() {
           <div className="status-bar">
             <div className="status-indicator">
               <div className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
-              <span>{connected ? 'Connected to WhatsApp' : 'WhatsApp Disconnected'}</span>
+              <span>{connected ? 'Connected to WhatsApp' : 'WhatsApp Not Connected'}</span>
               {!connected && !qrCode && (
                 <button className="btn-reconnect" onClick={() => {
-                  fetch(`${API_URL}/api/whatsapp/reconnect`, { method: 'POST' }).catch(() => {});
-                }}>Reconnect</button>
+                  fetch(`${API_URL}/api/whatsapp/connect`, { method: 'POST' }).catch(() => {});
+                }}>Connect WhatsApp</button>
               )}
             </div>
             {qrCode && (

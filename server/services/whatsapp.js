@@ -1,7 +1,7 @@
 // ─── Baileys v7 WhatsApp connection & message pipeline ───────────────────────
 // Baileys v7+ is ESM-only. We use dynamic import() from CJS.
-// Connects to WhatsApp, listens for group messages, extracts real estate info,
-// deduplicates, matches, and emits updates to frontend via Socket.IO.
+// Connects to WhatsApp ONLY when user clicks "Connect WhatsApp" button.
+// No auto-retry — user must manually request a new QR code.
 
 const path = require('path');
 const { extractRealEstateInfo } = require('./extractor');
@@ -18,8 +18,6 @@ const TARGET_GROUPS = (process.env.WHATSAPP_GROUP_IDS || '')
 let sock = null;
 let qrCode = null;
 let io = null;
-let retryCount = 0;
-const MAX_RETRIES = 5;
 
 // Baileys ESM modules — loaded once via dynamic import
 let makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers;
@@ -33,17 +31,25 @@ async function loadBaileys() {
   Browsers = baileys.Browsers;
 }
 
+function setIo(socketIo) {
+  io = socketIo;
+}
+
 function getStatus() {
   return {
     connected: sock?.user !== undefined,
     qrCode,
     user: sock?.user || null,
-    retryCount,
   };
 }
 
-async function connectWhatsApp(socketIo) {
-  io = socketIo;
+async function connectWhatsApp() {
+  // Close previous socket if any
+  if (sock) {
+    try { sock.end(); } catch (_) {}
+    sock = null;
+  }
+  qrCode = null;
 
   await loadBaileys();
 
@@ -57,7 +63,6 @@ async function connectWhatsApp(socketIo) {
     browser: Browsers ? Browsers.macOS('Google Chrome') : undefined,
     getMessage: async (key) => {
       // Required by Baileys v7 for message retries / poll decryption.
-      // We don't store messages in memory, so return undefined.
       return undefined;
     },
   });
@@ -66,18 +71,16 @@ async function connectWhatsApp(socketIo) {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      retryCount = 0;
       qrCode = qr;
-      // Print QR to terminal
+      // Print QR to terminal via Baileys' qrcode-terminal
       try {
         const QRCode = require('qrcode-terminal');
         QRCode.generate(qr, { small: true });
       } catch (_) {
-        console.log('QR string (paste into a QR renderer):', qr.substring(0, 60) + '...');
+        console.log('QR string:', qr.substring(0, 60) + '...');
       }
-      io.emit('qr', qr);
-      console.log('📱 Scan the QR code above with WhatsApp on your phone');
-      console.log('   Or view it in the browser at http://localhost:3000');
+      if (io) io.emit('qr', qr);
+      console.log('📱 QR code generated — scan it with WhatsApp on your phone');
     }
 
     if (connection === 'close') {
@@ -86,29 +89,28 @@ async function connectWhatsApp(socketIo) {
       const isLoggedOut = statusCode === DisconnectReason.loggedOut;
       const isRestart = statusCode === DisconnectReason.restartRequired;
 
-      console.log(`WhatsApp disconnected (code ${statusCode}), attempt ${retryCount + 1}/${MAX_RETRIES}`);
+      console.log(`WhatsApp disconnected (code ${statusCode})`);
       if (err) console.log(`   Error: ${err.message}`);
 
-      if (isLoggedOut) {
-        console.log('WhatsApp logged out — delete auth_info/ and restart to re-authenticate');
+      if (isRestart) {
+        // Baileys requires a restart — auto-reconnect once
+        console.log('   Baileys restart required — reconnecting automatically...');
+        setTimeout(() => connectWhatsApp(), 1000);
+      } else {
+        // All other disconnects: stop and wait for user to click button
+        if (isLoggedOut) {
+          console.log('WhatsApp logged out — click "Connect WhatsApp" to re-authenticate');
+        } else {
+          console.log('WhatsApp disconnected — click "Connect WhatsApp" to try again');
+        }
         sock = null;
         qrCode = null;
-        io.emit('disconnected');
-      } else if (isRestart || retryCount < MAX_RETRIES) {
-        retryCount = isRestart ? retryCount : retryCount + 1;
-        const delay = isRestart ? 1000 : Math.min(3000 * Math.pow(2, retryCount - 1), 60000);
-        console.log(`   Reconnecting in ${(delay / 1000).toFixed(0)}s...`);
-        setTimeout(() => connectWhatsApp(io), delay);
-      } else {
-        console.log(`WhatsApp: max retries (${MAX_RETRIES}) reached. Use /api/whatsapp/reconnect or restart.`);
-        sock = null;
-        io.emit('disconnected');
+        if (io) io.emit('disconnected');
       }
     } else if (connection === 'open') {
-      retryCount = 0;
       console.log(`✅ WhatsApp connected as ${sock.user?.id}`);
       qrCode = null;
-      io.emit('connected', { user: sock.user });
+      if (io) io.emit('connected', { user: sock.user });
     }
   });
 
@@ -194,4 +196,4 @@ async function handleMessage(message) {
   );
 }
 
-module.exports = { connectWhatsApp, getStatus };
+module.exports = { connectWhatsApp, getStatus, setIo };

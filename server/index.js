@@ -6,13 +6,13 @@ const cors = require('cors');
 require('dotenv').config();
 
 const { initDB } = require('./db/postgres');
-const { connectWhatsApp, getStatus } = require('./services/whatsapp');
+const { connectWhatsApp, getStatus, setIo } = require('./services/whatsapp');
 
 // ─── Express + Socket.IO setup ───────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-  cors: { origin: 'http://localhost:3000', methods: ['GET', 'POST'] },
+  cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 
 app.use(cors());
@@ -25,10 +25,10 @@ app.use('/api/matches', require('./routes/matches'));
 
 // WhatsApp endpoints
 app.get('/api/status', (_req, res) => res.json(getStatus()));
-app.post('/api/whatsapp/reconnect', async (_req, res) => {
+app.post('/api/whatsapp/connect', async (_req, res) => {
   try {
-    await connectWhatsApp(io);
-    res.json({ ok: true, message: 'Reconnection initiated' });
+    await connectWhatsApp();
+    res.json({ ok: true, message: 'WhatsApp connection initiated — QR code will appear shortly' });
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }
@@ -40,9 +40,11 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log('Client disconnected'));
 });
 
+// Pass Socket.IO reference to WhatsApp service
+setIo(io);
+
 // ─── Start ───────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3002;
-const WA_ENABLED = (process.env.WHATSAPP_ENABLED || 'true') !== 'false';
 
 async function start() {
   // Init PostgreSQL tables
@@ -50,19 +52,8 @@ async function start() {
 
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log('WhatsApp is NOT auto-started — click "Connect WhatsApp" in the UI to begin');
   });
-
-  // Connect WhatsApp (optional)
-  if (WA_ENABLED) {
-    try {
-      await connectWhatsApp(io);
-    } catch (err) {
-      console.error('WhatsApp connection error:', err.message);
-      console.log('Server continues without WhatsApp — set WHATSAPP_ENABLED=false to suppress');
-    }
-  } else {
-    console.log('WhatsApp disabled (WHATSAPP_ENABLED=false)');
-  }
 }
 
 start();
