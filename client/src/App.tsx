@@ -205,7 +205,6 @@ function App() {
   const [matchTierFilter, setMatchTierFilter] = useState<MatchTierFilter>('all');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [showHeatmap, setShowHeatmap] = useState(true);
-  const productListMode = 'products' as const;
   const [expandedRealProduct, setExpandedRealProduct] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
