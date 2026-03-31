@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import {
   Building2, Users, TrendingUp, Home, MapPin,
   DollarSign, BedDouble, Square, Layers, Map as MapIcon, Bath,
-  LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText, Package
+  LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -189,7 +189,7 @@ const formatDate = (timestamp: string) =>
 function App() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [aggregatedPosts, setAggregatedPosts] = useState<AggregatedPost[]>([]);
+  const [aggregatedPosts] = useState<AggregatedPost[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [realProducts, setRealProducts] = useState<RealProduct[]>([]);
   const [heatmapPoints, setHeatmapPoints] = useState<HeatmapPoint[]>([]);
@@ -205,7 +205,7 @@ function App() {
   const [matchTierFilter, setMatchTierFilter] = useState<MatchTierFilter>('all');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [showHeatmap, setShowHeatmap] = useState(true);
-  const [productListMode, setProductListMode] = useState<'raw' | 'products'>('products');
+  const [productListMode] = useState<'raw' | 'products'>('products');
   const [expandedRealProduct, setExpandedRealProduct] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -253,10 +253,6 @@ function App() {
   }, []);
 
   useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
-
-  const filteredPosts = posts.filter(
-    (post) => filter === 'all' || post.type === (filter === 'offers' ? 'offer' : 'demand')
-  );
 
   const cities = Array.from(new Set(products.map(p => p.city))).sort();
 
