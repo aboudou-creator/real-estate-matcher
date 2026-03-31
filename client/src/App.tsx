@@ -187,7 +187,7 @@ const formatDate = (timestamp: string) =>
   });
 
 function App() {
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [, setPosts] = useState<Post[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [aggregatedPosts] = useState<AggregatedPost[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -205,7 +205,7 @@ function App() {
   const [matchTierFilter, setMatchTierFilter] = useState<MatchTierFilter>('all');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [showHeatmap, setShowHeatmap] = useState(true);
-  const [productListMode] = useState<'raw' | 'products'>('products');
+  const productListMode = 'products' as const;
   const [expandedRealProduct, setExpandedRealProduct] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
