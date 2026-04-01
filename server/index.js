@@ -50,8 +50,8 @@ async function start() {
   // Init PostgreSQL tables
   await initDB().catch(err => console.error('PostgreSQL init error:', err));
 
-  server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on 0.0.0.0:${PORT}`);
     console.log('WhatsApp is NOT auto-started — click "Connect WhatsApp" in the UI to begin');
   });
 }
