@@ -144,6 +144,12 @@ const CATEGORY_PATTERNS = {
     /\bterrain\s+agricole\b/i, /\bchamp\b/i,
     /\bferme\b/i, /\bexploitation\b/i, /\bterre\s+agricole\b/i,
   ],
+  colocation: [
+    /\bcolocation\b/i, /\bcoloc\b/i, /\bco[-\s]?loc\b/i, /\bco\s+location\b/i,
+    /\bcolocataire\b/i, /\bpartage\s+d'appart\b/i, /\bpartage\s+appart\b/i,
+    /\broommate\b/i, /\bje\s+cherche\s+un\s+coloc\b/i,
+    /\bpropose\s+coloc\b/i, /\boffre\s+coloc\b/i,
+  ],
 };
 
 const SALE_PATTERNS = [
@@ -288,6 +294,7 @@ const CATEGORY_LABELS = {
   house: 'Maison',
   ground: 'Terrain',
   agricultural_ground: 'Terrain agricole',
+  colocation: 'Colocation',
 };
 
 // ─── Single-segment extraction ───────────────────────────────────────────────
@@ -300,7 +307,7 @@ function extractSingle(text, fallbackPhone) {
 
   // Detect category
   let category = null;
-  for (const cat of ['agricultural_ground', 'ground', 'house', 'room', 'apartment']) {
+  for (const cat of ['agricultural_ground', 'ground', 'house', 'colocation', 'room', 'apartment']) {
     if (CATEGORY_PATTERNS[cat].some(p => p.test(text))) {
       category = cat;
       break;

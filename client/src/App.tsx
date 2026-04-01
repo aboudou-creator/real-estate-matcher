@@ -158,7 +158,7 @@ interface RealProduct {
 
 type TabType = 'products' | 'posts' | 'matches' | 'aggregated';
 type FilterType = 'all' | 'offers' | 'demands';
-type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground';
+type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground' | 'colocation';
 type TransactionFilter = 'all' | 'sale' | 'rent';
 type MatchTierFilter = 'all' | 'high' | 'mid' | 'low';
 type MatchCriteria = 'city' | 'category' | 'transaction' | 'bedrooms' | 'neighborhood';
@@ -172,6 +172,7 @@ const getCategoryIcon = (category: string) => {
     case 'house':               return <Home size={size} />;
     case 'ground':              return <Square size={size} />;
     case 'agricultural_ground': return <TrendingUp size={size} />;
+    case 'colocation':          return <Users size={size} />;
     default:                    return <Building2 size={size} />;
   }
 };
@@ -415,6 +416,7 @@ function App() {
             <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms</button>
             <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
             <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
+            <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation</button>
           </div>
         </div>
 
@@ -644,6 +646,7 @@ function App() {
             <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms</button>
             <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
             <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
+            <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation</button>
           </div>
         </div>
         <div className="filter-results">
