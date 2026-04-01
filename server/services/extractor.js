@@ -163,13 +163,14 @@ const RENT_PATTERNS = [
 ];
 
 // ─── Price extraction ────────────────────────────────────────────────────────
-// Handles: "85 000 000 FCFA", "85.000.000 CFA", "85M", "85 millions", "850K"
+// Handles: "85 000 000 FCFA", "85.000.000 CFA", "85M", "85 millions", "850K", "150mill"
 function extractPrice(text) {
   // "XX millions" or "XXM"
   let m = text.match(/(\d+(?:[.,]\d+)?)\s*millions?\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000_000);
 
-  m = text.match(/(\d+(?:[.,]\d+)?)\s*M\b/);
+  // "XXM" or "XXmill" shorthand
+  m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:M|mill)\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000_000);
 
   // "XXK" or "XX mille"
