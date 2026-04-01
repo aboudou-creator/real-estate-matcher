@@ -161,7 +161,7 @@ type FilterType = 'all' | 'offers' | 'demands';
 type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground';
 type TransactionFilter = 'all' | 'sale' | 'rent';
 type MatchTierFilter = 'all' | 'high' | 'mid' | 'low';
-type MatchCriteria = 'city' | 'category' | 'transaction' | 'bedrooms';
+type MatchCriteria = 'city' | 'category' | 'transaction' | 'bedrooms' | 'neighborhood';
 type BedroomsFilter = 'all' | '1' | '2' | '3' | '4' | '5+';
 
 const getCategoryIcon = (category: string) => {
@@ -197,6 +197,34 @@ const formatDate = (timestamp: string) =>
     hour: '2-digit',
     minute: '2-digit',
   });
+
+const formatTimeAgo = (timestamp: string | null | undefined): string => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  const diffWeek = Math.floor(diffDay / 7);
+  const diffMonth = Math.floor(diffDay / 30);
+  const diffYear = Math.floor(diffDay / 365);
+
+  if (diffSec < 60) return 'il y a quelques secondes';
+  if (diffMin < 2) return 'il y a une minute';
+  if (diffMin < 60) return `il y a ${diffMin} minutes`;
+  if (diffHour < 2) return 'il y a une heure';
+  if (diffHour < 24) return `il y a ${diffHour} heures`;
+  if (diffDay < 2) return 'il y a un jour';
+  if (diffDay < 7) return `il y a ${diffDay} jours`;
+  if (diffWeek < 2) return 'il y a une semaine';
+  if (diffWeek < 4) return `il y a ${diffWeek} semaines`;
+  if (diffMonth < 2) return 'il y a un mois';
+  if (diffMonth < 12) return `il y a ${diffMonth} mois`;
+  if (diffYear < 2) return 'il y a un an';
+  return `il y a ${diffYear} ans`;
+};
 
 function App() {
   const [matches, setMatches] = useState<Match[]>([]);
@@ -708,6 +736,7 @@ function App() {
       if (matchCriteriaFilters.has('category')    && m.post1.category !== m.post2.category) return false;
       if (matchCriteriaFilters.has('transaction') && m.post1.transaction_type !== m.post2.transaction_type) return false;
       if (matchCriteriaFilters.has('bedrooms')    && (m.post1.bedrooms == null || m.post1.bedrooms !== m.post2.bedrooms)) return false;
+      if (matchCriteriaFilters.has('neighborhood') && m.post1.neighborhood !== m.post2.neighborhood) return false;
       return true;
     })
     .sort((a, b) => b.score - a.score);
@@ -741,12 +770,13 @@ function App() {
         <div className="filter-row">
           <span className="criteria-label">Identical criteria:</span>
           <div className="criteria-chips">
-            {(['city', 'category', 'transaction', 'bedrooms'] as MatchCriteria[]).map(c => {
+            {(['city', 'category', 'transaction', 'bedrooms', 'neighborhood'] as MatchCriteria[]).map(c => {
               const labels: Record<MatchCriteria, string> = {
                 city: '📍 Same City',
                 category: '🏠 Same Category',
                 transaction: '💰 Same Transaction',
                 bedrooms: '🛏 Same Bedrooms',
+                neighborhood: '🏘️ Same Neighborhood',
               };
               const active = matchCriteriaFilters.has(c);
               return (
@@ -1102,11 +1132,11 @@ function App() {
                             {prod.zone}
                           </div>
                         )}
-                        {(prod.sender || prod.group_name) && (
+                        {(prod.sender || prod.group_name || prod.created_at) && (
                           <div className="match-compare-sender">
                             {prod.sender && <span><Users size={13} /> {prod.sender}</span>}
                             {prod.group_name && <span><MessageSquare size={13} /> {prod.group_name}</span>}
-                            {prod.created_at && <span className="timestamp">{formatDate(prod.created_at)}</span>}
+                            {prod.created_at && <span className="timestamp" title={formatDate(prod.created_at)}>{formatTimeAgo(prod.created_at)}</span>}
                           </div>
                         )}
                         {prod.description && (
