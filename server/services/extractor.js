@@ -318,9 +318,9 @@ function extractSingle(text, fallbackPhone) {
   const isOffer = OFFER_PATTERNS.some(p => p.test(text));
   const isDemand = DEMAND_PATTERNS.some(p => p.test(text));
 
-  // Detect category
+  // Detect category - check more specific indicators first
   let category = null;
-  for (const cat of ['agricultural_ground', 'ground', 'house', 'colocation', 'room', 'apartment']) {
+  for (const cat of ['apartment', 'colocation', 'room', 'house', 'agricultural_ground', 'ground']) {
     if (CATEGORY_PATTERNS[cat].some(p => p.test(text))) {
       category = cat;
       break;
