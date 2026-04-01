@@ -403,29 +403,51 @@ function App() {
     'Thiès Extension':  '#f59e0b',
   };
 
-  const renderProducts = () => (
+  const renderProducts = () => {
+    // Compute filter counts
+    const typeCounts = {
+      all: realProducts.length,
+      offers: realProducts.filter(p => p.type === 'offer').length,
+      demands: realProducts.filter(p => p.type === 'demand').length,
+    };
+    const categoryCounts = {
+      all: realProducts.length,
+      apartment: realProducts.filter(p => p.category === 'apartment').length,
+      room: realProducts.filter(p => p.category === 'room').length,
+      house: realProducts.filter(p => p.category === 'house').length,
+      ground: realProducts.filter(p => p.category === 'ground').length,
+      agricultural_ground: realProducts.filter(p => p.category === 'agricultural_ground').length,
+      colocation: realProducts.filter(p => p.category === 'colocation').length,
+    };
+    const transactionCounts = {
+      all: realProducts.length,
+      sale: realProducts.filter(p => p.transaction_type === 'sale').length,
+      rent: realProducts.filter(p => p.transaction_type === 'rent').length,
+    };
+
+    return (
     <>
       <div className="card">
         <div className="filter-row">
           <div className="filters">
-            <button onClick={() => setFilter('all')} className={`filter-btn ${filter === 'all' ? 'active-all' : ''}`}>All</button>
-            <button onClick={() => setFilter('offers')} className={`filter-btn ${filter === 'offers' ? 'active-offers' : ''}`}>Offers</button>
-            <button onClick={() => setFilter('demands')} className={`filter-btn ${filter === 'demands' ? 'active-demands' : ''}`}>Demands</button>
+            <button onClick={() => setFilter('all')} className={`filter-btn ${filter === 'all' ? 'active-all' : ''}`}>All ({typeCounts.all})</button>
+            <button onClick={() => setFilter('offers')} className={`filter-btn ${filter === 'offers' ? 'active-offers' : ''}`}>Offers ({typeCounts.offers})</button>
+            <button onClick={() => setFilter('demands')} className={`filter-btn ${filter === 'demands' ? 'active-demands' : ''}`}>Demands ({typeCounts.demands})</button>
             <span className="filter-divider" />
-            <button onClick={() => setCategoryFilter('all')} className={`filter-btn ${categoryFilter === 'all' ? 'active-all' : ''}`}>All Types</button>
-            <button onClick={() => setCategoryFilter('apartment')} className={`filter-btn ${categoryFilter === 'apartment' ? 'active-all' : ''}`}>Apartments</button>
-            <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms</button>
-            <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
-            <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
-            <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation</button>
+            <button onClick={() => setCategoryFilter('all')} className={`filter-btn ${categoryFilter === 'all' ? 'active-all' : ''}`}>All Types ({categoryCounts.all})</button>
+            <button onClick={() => setCategoryFilter('apartment')} className={`filter-btn ${categoryFilter === 'apartment' ? 'active-all' : ''}`}>Apartments ({categoryCounts.apartment})</button>
+            <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms ({categoryCounts.room})</button>
+            <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses ({categoryCounts.house})</button>
+            <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground ({categoryCounts.ground})</button>
+            <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation ({categoryCounts.colocation})</button>
           </div>
         </div>
 
         <div className="filter-row">
           <div className="filters">
-            <button onClick={() => setTransactionFilter('all')} className={`filter-btn ${transactionFilter === 'all' ? 'active-all' : ''}`}>Sale & Rent</button>
-            <button onClick={() => setTransactionFilter('sale')} className={`filter-btn ${transactionFilter === 'sale' ? 'active-all' : ''}`}>Sale</button>
-            <button onClick={() => setTransactionFilter('rent')} className={`filter-btn ${transactionFilter === 'rent' ? 'active-all' : ''}`}>Rent</button>
+            <button onClick={() => setTransactionFilter('all')} className={`filter-btn ${transactionFilter === 'all' ? 'active-all' : ''}`}>Sale & Rent ({transactionCounts.all})</button>
+            <button onClick={() => setTransactionFilter('sale')} className={`filter-btn ${transactionFilter === 'sale' ? 'active-all' : ''}`}>Sale ({transactionCounts.sale})</button>
+            <button onClick={() => setTransactionFilter('rent')} className={`filter-btn ${transactionFilter === 'rent' ? 'active-all' : ''}`}>Rent ({transactionCounts.rent})</button>
             <span className="filter-divider" />
 
             <select
@@ -633,6 +655,7 @@ function App() {
       )}
     </>
   );
+  };
 
   const renderPosts = () => (
     <>
