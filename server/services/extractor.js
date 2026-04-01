@@ -146,7 +146,7 @@ const CATEGORY_PATTERNS = {
   ],
   colocation: [
     /\bcolocation\b/i, /\bcoloc\b/i, /\bco[-\s]?loc\b/i, /\bco\s+location\b/i,
-    /\bcolocataire\b/i, /\bpartage\s+d'appart\b/i, /\bpartage\s+appart\b/i,
+    /\bcolocataire\b/i, /\bcolacatrice\b/i, /\bpartage\s+d'appart\b/i, /\bpartage\s+appart\b/i,
     /\broommate\b/i, /\bje\s+cherche\s+un\s+coloc\b/i,
     /\bpropose\s+coloc\b/i, /\boffre\s+coloc\b/i,
   ],
