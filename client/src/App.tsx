@@ -279,7 +279,7 @@ function App() {
     socket.on('newRealProduct', (rp: RealProduct) => { newRPBuffer.current.push(rp); });
     socket.on('realProductUpdated', (rp: RealProduct) => { updatedRPBuffer.current.push(rp); });
 
-    // Flush buffers to state at most every 750ms
+    // Flush buffers to state at most every 2 seconds
     const flush = setInterval(() => {
       const posts = newPostsBuffer.current.splice(0);
       const matchs = newMatchesBuffer.current.splice(0);
@@ -298,7 +298,7 @@ function App() {
           return next;
         });
       }
-    }, 750);
+    }, 2000);
 
     return () => { socket.close(); clearInterval(flush); };
   }, []);
