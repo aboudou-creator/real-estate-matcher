@@ -1608,6 +1608,31 @@ details summary:hover { color: #93c5fd; }
   letter-spacing: 0.3px;
 }
 
+.zone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, var(--zone-color, #64748b) 40%, transparent);
+  background: color-mix(in srgb, var(--zone-color, #64748b) 14%, transparent);
+  color: var(--zone-color, #64748b);
+  width: fit-content;
+}
+.zone-badge::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--zone-color, #64748b);
+  flex-shrink: 0;
+}
+
 .badge-match-count {
   display: inline-flex;
   align-items: center;

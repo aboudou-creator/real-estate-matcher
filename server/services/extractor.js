@@ -4,23 +4,108 @@
 // bedrooms, area, and contact phone.
 
 const SENEGAL_CITIES = [
-  'Dakar', 'Thiès', 'Saint-Louis', 'Mbour', 'Touba', 'Ziguinchor',
+  'Dakar', 'Thiès', 'Thies', 'Saint-Louis', 'Mbour', 'Touba', 'Ziguinchor',
   'Kaolack', 'Tambacounda', 'Diamniadio', 'Saly', 'Lac Rose', 'Rufisque',
   'Pikine', 'Guédiawaye', 'Keur Massar', 'Bargny', 'Somone', 'Ngaparou',
-  'Popenguine', 'Joal', 'Fatick', 'Kolda', 'Sédhiou', 'Kédougou',
-  'Matam', 'Louga', 'Diourbel', 'Richard Toll', 'Mbao', 'Pout',
+  'Popenguine', 'Joal', 'Fatick', 'Kolda', 'Sédhiou', 'Sеdhiou', 'Kédougou',
+  'Matam', 'Louga', 'Diourbel', 'Richard Toll', 'Mbao', 'Pout', 'Sébikotane',
 ];
 
 const DAKAR_NEIGHBORHOODS = [
-  'Almadies', 'Plateau', 'Mermoz', 'Sacré-Cœur', 'Sacré-Coeur', 'Sacre Coeur',
-  'Ouakam', 'Ngor', 'Fann', 'Médina', 'Medina', 'Grand Dakar',
-  'Parcelles Assainies', 'HLM', 'Sicap', 'Liberté', 'Liberte',
-  'Point E', 'Yoff', 'Mamelles', 'Hann', 'Bel Air', 'Colobane',
-  'Grand Yoff', 'Cambérène', 'Camberene', 'Dieuppeul', 'Derklé', 'Derkle',
-  'Gibraltar', 'Centenaire', 'Amitié', 'Amitie', 'Cité Keur Gorgui',
-  'Mermoz-Sacré-Cœur', 'Nord Foire', 'Virage', 'Ouest Foire',
-  'Patte d\'Oie', 'Castors', 'Fenêtre Mermoz',
+  // Centre Dakar
+  'Plateau', 'Fann', 'Point E', 'Mermoz', 'Mermoz-Sacré-Cœur', 'Fenêtre Mermoz',
+  'Sacré-Cœur', 'Sacré-Coeur', 'Sacre Coeur',
+  // Nord Dakar (Sacré-Cœur 1-3 must be checked BEFORE plain Sacré-Cœur)
+  'Sacré-Cœur 1', 'Sacré-Coeur 1', 'Sacré-Cœur 2', 'Sacré-Coeur 2',
+  'Sacré-Cœur 3', 'Sacré-Coeur 3',
+  'Parcelles Assainies', 'Grand Yoff', 'Liberté', 'Liberte',
+  'HLM', 'Sicap', 'Nord Foire',
+  // Ouest Dakar
+  'Almadies', 'Ngor', 'Yoff', 'Ouakam', 'Mamelles',
+  // Est Dakar
+  'Keur Gorgui', 'Cité Keur Gorgui', 'Virage', 'Ouest Foire',
+  // Other Dakar
+  'Médina', 'Medina', 'Grand Dakar', 'Hann', 'Bel Air', 'Colobane',
+  'Cambérène', 'Camberene', 'Dieuppeul', 'Derklé', 'Derkle',
+  'Gibraltar', 'Centenaire', 'Amitié', 'Amitie',
+  'Patte d\'Oie', 'Castors',
+  // Thiès neighborhoods
+  'Thiès Nord', 'Thies Nord', 'Thiès Sud', 'Thies Sud',
+  'Cité Malick Sy', 'Cite Malick Sy', 'Grand Thiès', 'Grand Thies',
 ];
+
+// ─── Zone mapping ─────────────────────────────────────────────────────────────
+const NEIGHBORHOOD_ZONE_MAP = {
+  // Centre Dakar
+  'Plateau': 'Centre Dakar',
+  'Fann': 'Centre Dakar',
+  'Point E': 'Centre Dakar',
+  'Mermoz': 'Centre Dakar',
+  'Mermoz-Sacré-Cœur': 'Centre Dakar',
+  'Fenêtre Mermoz': 'Centre Dakar',
+  'Sacré-Cœur': 'Centre Dakar',
+  'Sacré-Coeur': 'Centre Dakar',
+  'Sacre Coeur': 'Centre Dakar',
+  // Nord Dakar
+  'Sacré-Cœur 1': 'Nord Dakar',
+  'Sacré-Coeur 1': 'Nord Dakar',
+  'Sacré-Cœur 2': 'Nord Dakar',
+  'Sacré-Coeur 2': 'Nord Dakar',
+  'Sacré-Cœur 3': 'Nord Dakar',
+  'Sacré-Coeur 3': 'Nord Dakar',
+  'Parcelles Assainies': 'Nord Dakar',
+  'Grand Yoff': 'Nord Dakar',
+  'Liberté': 'Nord Dakar',
+  'Liberte': 'Nord Dakar',
+  'HLM': 'Nord Dakar',
+  'Sicap': 'Nord Dakar',
+  'Nord Foire': 'Nord Dakar',
+  // Ouest Dakar
+  'Almadies': 'Ouest Dakar',
+  'Ngor': 'Ouest Dakar',
+  'Yoff': 'Ouest Dakar',
+  'Ouakam': 'Ouest Dakar',
+  'Mamelles': 'Ouest Dakar',
+  // Est Dakar
+  'Keur Gorgui': 'Est Dakar',
+  'Cité Keur Gorgui': 'Est Dakar',
+  'Virage': 'Est Dakar',
+  'Ouest Foire': 'Est Dakar',
+  // Thiès Centre
+  'Thiès Nord': 'Thiès Centre',
+  'Thies Nord': 'Thiès Centre',
+  'Thiès Sud': 'Thiès Centre',
+  'Thies Sud': 'Thiès Centre',
+  'Cité Malick Sy': 'Thiès Centre',
+  'Cite Malick Sy': 'Thiès Centre',
+  'Grand Thiès': 'Thiès Centre',
+  'Grand Thies': 'Thiès Centre',
+};
+
+function inferZone(neighborhood, city) {
+  // Sacré-Cœur with number → Nord Dakar (check before plain lookup)
+  if (neighborhood && /sacr[eé][-\s]*c[o\u0153]eur\s*[123]/i.test(neighborhood)) {
+    return 'Nord Dakar';
+  }
+  if (neighborhood) {
+    // Exact match (case-insensitive)
+    const key = Object.keys(NEIGHBORHOOD_ZONE_MAP).find(
+      k => k.toLowerCase() === neighborhood.toLowerCase()
+    );
+    if (key) return NEIGHBORHOOD_ZONE_MAP[key];
+  }
+  // City-based fallback
+  if (city) {
+    if (/rufisque/i.test(city))    return 'Périphérie';
+    if (/diamniadio/i.test(city))  return 'Périphérie';
+    if (/lac\s*rose/i.test(city))  return 'Périphérie';
+    if (/sébi|sebi/i.test(city))   return 'Périphérie';
+    if (/thi[eè]s/i.test(city))    return 'Thiès Centre';
+    if (/pout/i.test(city))        return 'Thiès Extension';
+    if (/mbour/i.test(city))       return 'Thiès Extension';
+  }
+  return null;
+}
 
 // ─── Pattern definitions ─────────────────────────────────────────────────────
 
@@ -159,7 +244,8 @@ function extractLocation(text) {
   // Default to Dakar? if no location found
   if (!city) city = 'Dakar?';
 
-  return { city, neighborhood };
+  const zone = inferZone(neighborhood, city);
+  return { city, neighborhood, zone };
 }
 
 function escapeRegex(str) {
@@ -249,7 +335,7 @@ function extractSingle(text, fallbackPhone) {
   const bedrooms = extractBedrooms(text);
   const area = extractArea(text);
   const phone = extractPhone(text) || fallbackPhone;
-  const { city, neighborhood } = extractLocation(text);
+  const { city, neighborhood, zone } = extractLocation(text);
 
   const bedroomLabel = bedrooms ? ` F${bedrooms}` : '';
   const locationLabel = neighborhood ? ` - ${neighborhood}` : city ? ` - ${city}` : '';
@@ -276,6 +362,7 @@ function extractSingle(text, fallbackPhone) {
     phone,
     city,
     neighborhood,
+    zone,
     title,
     description: text.substring(0, 500),
   };

@@ -88,13 +88,14 @@ async function processNewPost(postData) {
       const rpResult = await client.query(
         `INSERT INTO real_products (
           title, type, category, transaction_type,
-          price, currency, city, neighborhood,
+          price, currency, city, neighborhood, zone,
           latitude, longitude, bedrooms, bathrooms, area, post_count
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,1)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,1)
         RETURNING id`,
         [
           postData.title, postData.type, postData.category, postData.transaction_type,
           postData.price, postData.currency || 'XOF', postData.city, postData.neighborhood,
+          postData.zone || null,
           postData.latitude, postData.longitude, postData.bedrooms, postData.bathrooms, postData.area,
         ]
       );

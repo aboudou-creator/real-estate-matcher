@@ -95,11 +95,12 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
-    // Add group_name column if it doesn't exist (migration for existing DBs)
+    // Migrations for existing DBs
     await client.query(`
       ALTER TABLE products ADD COLUMN IF NOT EXISTS group_name VARCHAR(255);
       ALTER TABLE real_products DROP CONSTRAINT IF EXISTS real_products_category_check;
       ALTER TABLE products DROP CONSTRAINT IF EXISTS products_category_check;
+      ALTER TABLE real_products ADD COLUMN IF NOT EXISTS zone VARCHAR(100);
     `).catch(() => {});
 
     console.log('PostgreSQL: products, matches, duplicates tables ready');

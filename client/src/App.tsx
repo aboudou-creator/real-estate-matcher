@@ -64,6 +64,7 @@ interface MatchProduct {
   sender: string | null;
   group_name: string | null;
   created_at: string | null;
+  zone: string | null;
 }
 
 interface Match {
@@ -143,6 +144,7 @@ interface RealProduct {
   currency: string;
   city: string;
   neighborhood: string;
+  zone: string | null;
   latitude: number;
   longitude: number;
   bedrooms: number | null;
@@ -212,6 +214,7 @@ function App() {
   const [cityFilter, setCityFilter] = useState<string>('all');
   const [bedroomsFilter, setBedroomsFilter] = useState<BedroomsFilter>('all');
   const [priceMax, setPriceMax] = useState<string>('');
+  const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [matchTierFilter, setMatchTierFilter] = useState<MatchTierFilter>('all');
   const [matchCriteriaFilters, setMatchCriteriaFilters] = useState<Set<MatchCriteria>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
@@ -328,6 +331,7 @@ function App() {
     if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
     if (transactionFilter !== 'all' && p.transaction_type !== transactionFilter) return false;
     if (cityFilter !== 'all' && p.city !== cityFilter) return false;
+    if (zoneFilter !== 'all' && p.zone !== zoneFilter) return false;
     if (bedroomsFilter !== 'all') {
       const bed = p.bedrooms || 0;
       if (bedroomsFilter === '5+' ? bed < 5 : bed !== parseInt(bedroomsFilter)) return false;
@@ -346,13 +350,28 @@ function App() {
 
   const resetProductFilters = () => {
     setFilter('all'); setCategoryFilter('all'); setTransactionFilter('all');
-    setCityFilter('all'); setBedroomsFilter('all'); setPriceMax('');
+    setCityFilter('all'); setBedroomsFilter('all'); setPriceMax(''); setZoneFilter('all');
   };
 
   const activeFilterCount = [
     filter !== 'all', categoryFilter !== 'all', transactionFilter !== 'all',
-    cityFilter !== 'all', bedroomsFilter !== 'all', priceMax !== '',
+    cityFilter !== 'all', bedroomsFilter !== 'all', priceMax !== '', zoneFilter !== 'all',
   ].filter(Boolean).length;
+
+  const ZONES = [
+    'Centre Dakar', 'Ouest Dakar', 'Nord Dakar', 'Est Dakar',
+    'Périphérie', 'Thiès Centre', 'Thiès Extension',
+  ];
+
+  const ZONE_COLORS: Record<string, string> = {
+    'Centre Dakar':     '#818cf8',
+    'Ouest Dakar':      '#22c55e',
+    'Nord Dakar':       '#f59e0b',
+    'Est Dakar':        '#f59e0b',
+    'Périphérie':       '#f97316',
+    'Thiès Centre':     '#22c55e',
+    'Thiès Extension':  '#f59e0b',
+  };
 
   const renderProducts = () => (
     <>
@@ -385,6 +404,15 @@ function App() {
             >
               <option value="all">All Cities</option>
               {cities.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+
+            <select
+              className="filter-select"
+              value={zoneFilter}
+              onChange={(e) => setZoneFilter(e.target.value)}
+            >
+              <option value="all">All Zones</option>
+              {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
             </select>
 
             <select
@@ -471,6 +499,12 @@ function App() {
                   {rp.bathrooms && <div className="meta-item"><Bath size={14} /><span>{rp.bathrooms} bath</span></div>}
                   {rp.area && <div className="meta-item"><Square size={14} /><span>{rp.area} m²</span></div>}
                 </div>
+
+                {rp.zone && (
+                  <div className="zone-badge" style={{ '--zone-color': ZONE_COLORS[rp.zone] || '#64748b' } as React.CSSProperties}>
+                    {rp.zone}
+                  </div>
+                )}
 
                 <button
                   className={`linked-posts-toggle ${expandedRealProduct === rp.id ? 'expanded' : ''}`}
@@ -1063,6 +1097,11 @@ function App() {
                           {prod.bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{prod.bedrooms} bedrooms</span></div>}
                           {prod.area && <div className="meta-item"><Square size={14} /><span>{prod.area} m²</span></div>}
                         </div>
+                        {prod.zone && (
+                          <div className="zone-badge" style={{ '--zone-color': ZONE_COLORS[prod.zone] || '#64748b' } as React.CSSProperties}>
+                            {prod.zone}
+                          </div>
+                        )}
                         {(prod.sender || prod.group_name) && (
                           <div className="match-compare-sender">
                             {prod.sender && <span><Users size={13} /> {prod.sender}</span>}

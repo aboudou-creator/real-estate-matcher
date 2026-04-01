@@ -22,7 +22,8 @@ router.get('/', async (req, res) => {
           'description', (SELECT p1.description FROM products p1 WHERE p1.real_product_id = rp1.id LIMIT 1),
           'sender',      (SELECT p1.sender      FROM products p1 WHERE p1.real_product_id = rp1.id LIMIT 1),
           'group_name',  (SELECT p1.group_name  FROM products p1 WHERE p1.real_product_id = rp1.id LIMIT 1),
-          'created_at',  rp1.created_at
+          'created_at',  rp1.created_at,
+          'zone',        rp1.zone
         ) as post1,
         json_build_object(
           '_id', rp2.id, 'price', rp2.price,
@@ -37,7 +38,8 @@ router.get('/', async (req, res) => {
           'description', (SELECT p2.description FROM products p2 WHERE p2.real_product_id = rp2.id LIMIT 1),
           'sender',      (SELECT p2.sender      FROM products p2 WHERE p2.real_product_id = rp2.id LIMIT 1),
           'group_name',  (SELECT p2.group_name  FROM products p2 WHERE p2.real_product_id = rp2.id LIMIT 1),
-          'created_at',  rp2.created_at
+          'created_at',  rp2.created_at,
+          'zone',        rp2.zone
         ) as post2
       FROM matches m
       JOIN real_products rp1 ON m.product1_id = rp1.id
