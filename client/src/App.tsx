@@ -145,6 +145,7 @@ interface RealProduct {
   bathrooms: number | null;
   area: number;
   post_count: number;
+  match_count: number;
   created_at: string;
   linked_posts: LinkedPost[];
 }
@@ -255,6 +256,10 @@ function App() {
     socket.on('wa_error', (msg: string) => setWaStatus(msg));
     socket.on('newPost', (post: Product) => setProducts(prev => [post, ...prev]));
     socket.on('newMatch', (match: Match) => setMatches(prev => [match, ...prev]));
+    socket.on('newRealProduct', (rp: RealProduct) => setRealProducts(prev => [rp, ...prev]));
+    socket.on('realProductUpdated', (rp: RealProduct) => setRealProducts(prev =>
+      prev.map(p => p.id === rp.id ? rp : p)
+    ));
     return () => { socket.close(); };
   }, []);
 
@@ -400,7 +405,10 @@ function App() {
             {filteredRealProducts.map((rp) => {
               const primaryPhone = rp.linked_posts?.find(lp => lp.phone)?.phone;
               return (
-              <div key={rp.id} className={`product-card real-product-card ${rp.post_count > 1 ? 'has-dupes' : ''}`} onClick={() => setSelectedProduct(rp)} style={{ cursor: 'pointer' }}>
+              <div key={rp.id} className={`product-card real-product-card ${rp.post_count > 1 ? 'has-dupes' : ''}`} onClick={() => setSelectedProduct(rp)} style={{ cursor: 'pointer', position: 'relative' }}>
+                {primaryPhone && (
+                  <div className="card-phone-corner"><Phone size={12} /> {primaryPhone}</div>
+                )}
                 <div className="post-header">
                   <div className="post-badges">
                     <span className="category-icon">{getCategoryIcon(rp.category)}</span>
@@ -410,14 +418,13 @@ function App() {
                     <span className="badge badge-category">{rp.category.replace('_', ' ')}</span>
                     <span className="badge badge-transaction">{rp.transaction_type}</span>
                     <span className="badge badge-post-count">{rp.post_count} post{rp.post_count > 1 ? 's' : ''}</span>
+                    {rp.match_count > 0 && (
+                      <span className="badge badge-match-count"><Users size={11} /> {rp.match_count} match{rp.match_count > 1 ? 'es' : ''}</span>
+                    )}
                   </div>
                 </div>
 
                 <h4 className="product-title">{rp.title}</h4>
-
-                {primaryPhone && (
-                  <div className="product-phone"><Phone size={14} /> <strong>{primaryPhone}</strong></div>
-                )}
 
                 <div className="product-price">{formatCFA(rp.price)}</div>
 
@@ -852,7 +859,32 @@ function App() {
                   {selectedProduct.area && <div className="meta-item"><Square size={16} /><span>{selectedProduct.area} m²</span></div>}
                 </div>
 
-                <h3 className="dialog-section-title">Linked Posts ({selectedProduct.post_count})</h3>
+                {(() => {
+                  const productMatches = matches.filter(m => m.post1._id === selectedProduct.id || m.post2._id === selectedProduct.id);
+                  return productMatches.length > 0 ? (
+                    <>
+                      <h3 className="dialog-section-title"><Users size={15} /> Matches ({productMatches.length})</h3>
+                      <div className="dialog-matches">
+                        {productMatches.map(m => {
+                          const other = m.post1._id === selectedProduct.id ? m.post2 : m.post1;
+                          return (
+                            <div key={m._id} className="dialog-match-item">
+                              <div className="dialog-match-score">{(m.score * 100).toFixed(0)}%</div>
+                              <div className="dialog-match-info">
+                                <strong>{other.title}</strong>
+                                <span>{formatCFA(other.price)}</span>
+                                {other.phone && <span><Phone size={12} /> {other.phone}</span>}
+                                <span>{other.location}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null;
+                })()}
+
+                <h3 className="dialog-section-title"><FileText size={15} /> Linked Posts ({selectedProduct.post_count})</h3>
                 <div className="dialog-linked-posts">
                   {selectedProduct.linked_posts?.map((lp, idx) => (
                     <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
@@ -868,28 +900,6 @@ function App() {
                     </div>
                   ))}
                 </div>
-
-                {matches.filter(m => m.post1._id === selectedProduct.id || m.post2._id === selectedProduct.id).length > 0 && (
-                  <>
-                    <h3 className="dialog-section-title">Matches</h3>
-                    <div className="dialog-matches">
-                      {matches.filter(m => m.post1._id === selectedProduct.id || m.post2._id === selectedProduct.id).map(m => {
-                        const other = m.post1._id === selectedProduct.id ? m.post2 : m.post1;
-                        return (
-                          <div key={m._id} className="dialog-match-item">
-                            <div className="dialog-match-score">{(m.score * 100).toFixed(0)}%</div>
-                            <div className="dialog-match-info">
-                              <strong>{other.title}</strong>
-                              <span>{formatCFA(other.price)}</span>
-                              {other.phone && <span><Phone size={12} /> {other.phone}</span>}
-                              <span>{other.location}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
               </div>
             </div>
           </div>

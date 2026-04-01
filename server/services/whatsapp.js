@@ -7,6 +7,7 @@ const path = require('path');
 const { extractRealEstateInfo } = require('./extractor');
 const { processNewPost } = require('./dedup');
 const { findMatchesForProduct } = require('./matcher');
+const { getFullRealProduct } = require('../routes/realProducts');
 
 // Build proxy agent from WA_PROXY_URL env var (dynamic import — these packages are ESM-only)
 // Supports: socks5://user:pass@host:port  or  http://user:pass@host:port
@@ -293,12 +294,29 @@ async function handleMessage(message) {
         newMatches = await findMatchesForProduct(realProductId);
       }
 
+      // Fetch the full real product (with linked_posts + match_count) and push to frontend
+      const fullRP = await getFullRealProduct(realProductId);
+      if (fullRP) {
+        if (isDuplicate) {
+          io.emit('realProductUpdated', fullRP);
+        } else {
+          io.emit('newRealProduct', fullRP);
+        }
+      }
+
       io.emit('newPost', rawPost);
       if (isDuplicate) {
         io.emit('duplicateDetected', { rawPost, realProductId });
       }
       for (const match of newMatches) {
         io.emit('newMatch', match);
+        // Re-emit updated real products for both sides of the match
+        const [rpA, rpB] = await Promise.all([
+          getFullRealProduct(match.post1?._id || match.product1_id),
+          getFullRealProduct(match.post2?._id || match.product2_id),
+        ]);
+        if (rpA) io.emit('realProductUpdated', rpA);
+        if (rpB) io.emit('realProductUpdated', rpB);
       }
 
       console.log(
