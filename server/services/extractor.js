@@ -169,8 +169,8 @@ function extractPrice(text) {
   let m = text.match(/(\d+(?:[.,]\d+)?)\s*millions?\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000_000);
 
-  // "XXM" or "XXmill" shorthand
-  m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:M|mill)\b/i);
+  // "XXM" or "XXmill" or "XXmil" shorthand
+  m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:M|mill|mil)\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000_000);
 
   // "XXK" or "XX mille"
