@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import io from 'socket.io-client';
 import {
-  Building2, Users, TrendingUp, Home, MapPin,
+  Building2, Users, TrendingUp, Home, MapPin, Phone, X, DoorOpen,
   DollarSign, BedDouble, Square, Layers, Map as MapIcon, Bath,
-  LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText
+  LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText, MessageSquare
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -34,7 +34,7 @@ interface Post {
   sender: string;
   text: string;
   type: 'offer' | 'demand';
-  category: 'apartment' | 'house' | 'ground' | 'agricultural_ground';
+  category: 'apartment' | 'house' | 'ground' | 'agricultural_ground' | 'room';
   transactionType: 'sale' | 'rent';
   location?: string;
   price?: number;
@@ -59,6 +59,7 @@ interface MatchProduct {
   bedrooms: number | null;
   area: number;
   post_count: number;
+  phone: string | null;
 }
 
 interface Match {
@@ -100,6 +101,7 @@ interface Product {
   phone: string;
   is_duplicate: boolean;
   created_at: string;
+  group_name?: string;
 }
 
 interface HeatmapPoint {
@@ -124,6 +126,7 @@ interface LinkedPost {
   area: number;
   is_duplicate: boolean;
   created_at: string;
+  group_name?: string;
 }
 
 interface RealProduct {
@@ -148,7 +151,7 @@ interface RealProduct {
 
 type TabType = 'products' | 'posts' | 'matches' | 'aggregated';
 type FilterType = 'all' | 'offers' | 'demands';
-type CategoryFilter = 'all' | 'apartment' | 'house' | 'ground' | 'agricultural_ground';
+type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground';
 type TransactionFilter = 'all' | 'sale' | 'rent';
 type MatchTierFilter = 'all' | 'high' | 'mid' | 'low';
 type BedroomsFilter = 'all' | '1' | '2' | '3' | '4' | '5+';
@@ -157,6 +160,7 @@ const getCategoryIcon = (category: string) => {
   const size = 16;
   switch (category) {
     case 'apartment':           return <Building2 size={size} />;
+    case 'room':                return <DoorOpen size={size} />;
     case 'house':               return <Home size={size} />;
     case 'ground':              return <Square size={size} />;
     case 'agricultural_ground': return <TrendingUp size={size} />;
@@ -207,6 +211,8 @@ function App() {
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [expandedRealProduct, setExpandedRealProduct] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedProduct, setSelectedProduct] = useState<RealProduct | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Product | null>(null);
 
   const fetchInitialData = useCallback(async () => {
     try {
@@ -317,6 +323,7 @@ function App() {
             <span className="filter-divider" />
             <button onClick={() => setCategoryFilter('all')} className={`filter-btn ${categoryFilter === 'all' ? 'active-all' : ''}`}>All Types</button>
             <button onClick={() => setCategoryFilter('apartment')} className={`filter-btn ${categoryFilter === 'apartment' ? 'active-all' : ''}`}>Apartments</button>
+            <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms</button>
             <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
             <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
           </div>
@@ -390,8 +397,10 @@ function App() {
 
       {viewMode === 'list' ? (
           <div className="product-grid">
-            {filteredRealProducts.map((rp) => (
-              <div key={rp.id} className={`product-card real-product-card ${rp.post_count > 1 ? 'has-dupes' : ''}`}>
+            {filteredRealProducts.map((rp) => {
+              const primaryPhone = rp.linked_posts?.find(lp => lp.phone)?.phone;
+              return (
+              <div key={rp.id} className={`product-card real-product-card ${rp.post_count > 1 ? 'has-dupes' : ''}`} onClick={() => setSelectedProduct(rp)} style={{ cursor: 'pointer' }}>
                 <div className="post-header">
                   <div className="post-badges">
                     <span className="category-icon">{getCategoryIcon(rp.category)}</span>
@@ -400,41 +409,42 @@ function App() {
                     </span>
                     <span className="badge badge-category">{rp.category.replace('_', ' ')}</span>
                     <span className="badge badge-transaction">{rp.transaction_type}</span>
-                    {rp.post_count > 1 && (
-                      <span className="badge badge-post-count">{rp.post_count} posts</span>
-                    )}
+                    <span className="badge badge-post-count">{rp.post_count} post{rp.post_count > 1 ? 's' : ''}</span>
                   </div>
                 </div>
 
                 <h4 className="product-title">{rp.title}</h4>
 
+                {primaryPhone && (
+                  <div className="product-phone"><Phone size={14} /> <strong>{primaryPhone}</strong></div>
+                )}
+
                 <div className="product-price">{formatCFA(rp.price)}</div>
 
                 <div className="post-meta">
-                  <div className="meta-item"><MapPin size={14} /><span>{rp.neighborhood}, {rp.city}</span></div>
+                  <div className="meta-item"><MapPin size={14} /><span>{rp.neighborhood ? `${rp.neighborhood}, ` : ''}{rp.city}</span></div>
                   {rp.bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{rp.bedrooms} bed</span></div>}
                   {rp.bathrooms && <div className="meta-item"><Bath size={14} /><span>{rp.bathrooms} bath</span></div>}
                   {rp.area && <div className="meta-item"><Square size={14} /><span>{rp.area} m²</span></div>}
                 </div>
 
-                {rp.post_count > 1 && (
-                  <button
-                    className={`linked-posts-toggle ${expandedRealProduct === rp.id ? 'expanded' : ''}`}
-                    onClick={() => setExpandedRealProduct(expandedRealProduct === rp.id ? null : rp.id)}
-                  >
-                    <FileText size={14} />
-                    <span>{rp.post_count} linked posts from {rp.linked_posts.map(lp => lp.sender).filter((s, i, a) => a.indexOf(s) === i).length} different people</span>
-                    {expandedRealProduct === rp.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                )}
+                <button
+                  className={`linked-posts-toggle ${expandedRealProduct === rp.id ? 'expanded' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setExpandedRealProduct(expandedRealProduct === rp.id ? null : rp.id); }}
+                >
+                  <FileText size={14} />
+                  <span>{rp.post_count} linked post{rp.post_count > 1 ? 's' : ''}{rp.post_count > 1 ? ` from ${rp.linked_posts.map(lp => lp.sender).filter((s, i, a) => a.indexOf(s) === i).length} people` : ''}</span>
+                  {expandedRealProduct === rp.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
 
                 {expandedRealProduct === rp.id && rp.linked_posts && (
-                  <div className="linked-posts-panel">
+                  <div className="linked-posts-panel" onClick={(e) => e.stopPropagation()}>
                     {rp.linked_posts.map((lp, idx) => (
                       <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
                         <div className="linked-post-header">
                           <span className="linked-post-sender">{lp.sender}</span>
-                          <span className="linked-post-phone">{lp.phone}</span>
+                          {lp.phone && <span className="linked-post-phone"><Phone size={12} /> {lp.phone}</span>}
+                          {lp.group_name && <span className="linked-post-group"><MessageSquare size={12} /> {lp.group_name}</span>}
                           {idx === 0 ? (
                             <span className="badge badge-original">original</span>
                           ) : (
@@ -449,7 +459,8 @@ function App() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
       ) : (
         <div className="card map-view-card">
@@ -524,6 +535,7 @@ function App() {
             <span className="filter-divider" />
             <button onClick={() => setCategoryFilter('all')} className={`filter-btn ${categoryFilter === 'all' ? 'active-all' : ''}`}>All Types</button>
             <button onClick={() => setCategoryFilter('apartment')} className={`filter-btn ${categoryFilter === 'apartment' ? 'active-all' : ''}`}>Apartments</button>
+            <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms</button>
             <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
             <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
           </div>
@@ -535,7 +547,7 @@ function App() {
 
       <div className="product-grid">
         {filteredProducts.map((product) => (
-          <div key={product.id} className={`product-card ${product.is_duplicate ? 'duplicate-card' : ''}`}>
+          <div key={product.id} className={`product-card ${product.is_duplicate ? 'duplicate-card' : ''}`} onClick={() => setSelectedPost(product)} style={{ cursor: 'pointer' }}>
             <div className="post-header">
               <div className="post-badges">
                 <span className="category-icon">{getCategoryIcon(product.category)}</span>
@@ -550,14 +562,22 @@ function App() {
 
             <h4 className="product-title">{product.title}</h4>
 
+            {product.phone && (
+              <div className="product-phone"><Phone size={14} /> <strong>{product.phone}</strong></div>
+            )}
+
             <div className="product-price">{formatCFA(product.price)}</div>
 
             <div className="post-meta">
-              <div className="meta-item"><MapPin size={14} /><span>{product.neighborhood}, {product.city}</span></div>
+              <div className="meta-item"><MapPin size={14} /><span>{product.neighborhood ? `${product.neighborhood}, ` : ''}{product.city}</span></div>
               {product.bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{product.bedrooms} bed</span></div>}
               {product.bathrooms && <div className="meta-item"><Bath size={14} /><span>{product.bathrooms} bath</span></div>}
               {product.area && <div className="meta-item"><Square size={14} /><span>{product.area} m²</span></div>}
             </div>
+
+            {product.group_name && (
+              <div className="post-group"><MessageSquare size={13} /> {product.group_name}</div>
+            )}
 
             <div className="product-description">{product.description}</div>
 
@@ -656,6 +676,9 @@ function App() {
                         {prod.post_count > 1 && <span className="badge badge-post-count">{prod.post_count} posts</span>}
                       </div>
                       <h4 className="match-product-title">{prod.title}</h4>
+                      {prod.phone && (
+                        <div className="match-product-phone"><Phone size={13} /> <strong>{prod.phone}</strong></div>
+                      )}
                       <div className="match-product-price">{formatCFA(prod.price)}</div>
                       <div className="match-product-meta">
                         <span><MapPin size={13} /> {prod.location}</span>
@@ -776,11 +799,6 @@ function App() {
             <div className="stat-value">{matches.length}</div>
             <div className="stat-label">Matches</div>
           </div>
-          <div className="stat-card">
-            <div className="stat-icon purple"><MapIcon size={22} /></div>
-            <div className="stat-value">{heatmapPoints.length}</div>
-            <div className="stat-label">Locations</div>
-          </div>
         </div>
 
         <div className="card">
@@ -808,6 +826,108 @@ function App() {
             {activeTab === 'posts' && renderPosts()}
             {activeTab === 'matches' && renderMatches()}
             {activeTab === 'aggregated' && renderAggregated()}
+          </div>
+        )}
+
+        {/* Product Detail Dialog */}
+        {selectedProduct && (
+          <div className="dialog-overlay" onClick={() => setSelectedProduct(null)}>
+            <div className="dialog" onClick={(e) => e.stopPropagation()}>
+              <button className="dialog-close" onClick={() => setSelectedProduct(null)}><X size={20} /></button>
+              <div className="dialog-header">
+                <div className="post-badges">
+                  <span className="category-icon">{getCategoryIcon(selectedProduct.category)}</span>
+                  <span className={`badge ${selectedProduct.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{selectedProduct.type}</span>
+                  <span className="badge badge-category">{selectedProduct.category.replace('_', ' ')}</span>
+                  <span className="badge badge-transaction">{selectedProduct.transaction_type}</span>
+                </div>
+                <h2>{selectedProduct.title}</h2>
+              </div>
+              <div className="dialog-body">
+                <div className="dialog-price">{formatCFA(selectedProduct.price)}</div>
+                <div className="dialog-meta">
+                  <div className="meta-item"><MapPin size={16} /><span>{selectedProduct.neighborhood ? `${selectedProduct.neighborhood}, ` : ''}{selectedProduct.city}</span></div>
+                  {selectedProduct.bedrooms && <div className="meta-item"><BedDouble size={16} /><span>{selectedProduct.bedrooms} bedrooms</span></div>}
+                  {selectedProduct.bathrooms && <div className="meta-item"><Bath size={16} /><span>{selectedProduct.bathrooms} bathrooms</span></div>}
+                  {selectedProduct.area && <div className="meta-item"><Square size={16} /><span>{selectedProduct.area} m²</span></div>}
+                </div>
+
+                <h3 className="dialog-section-title">Linked Posts ({selectedProduct.post_count})</h3>
+                <div className="dialog-linked-posts">
+                  {selectedProduct.linked_posts?.map((lp, idx) => (
+                    <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
+                      <div className="linked-post-header">
+                        <span className="linked-post-sender">{lp.sender}</span>
+                        {lp.phone && <span className="linked-post-phone"><Phone size={12} /> {lp.phone}</span>}
+                        {lp.group_name && <span className="linked-post-group"><MessageSquare size={12} /> {lp.group_name}</span>}
+                        {idx === 0 ? <span className="badge badge-original">original</span> : <span className="badge badge-duplicate">copy</span>}
+                      </div>
+                      <div className="linked-post-price">{formatCFA(lp.price)}</div>
+                      <div className="linked-post-desc">{lp.description}</div>
+                      <div className="linked-post-date">{formatDate(lp.created_at)}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {matches.filter(m => m.post1._id === selectedProduct.id || m.post2._id === selectedProduct.id).length > 0 && (
+                  <>
+                    <h3 className="dialog-section-title">Matches</h3>
+                    <div className="dialog-matches">
+                      {matches.filter(m => m.post1._id === selectedProduct.id || m.post2._id === selectedProduct.id).map(m => {
+                        const other = m.post1._id === selectedProduct.id ? m.post2 : m.post1;
+                        return (
+                          <div key={m._id} className="dialog-match-item">
+                            <div className="dialog-match-score">{(m.score * 100).toFixed(0)}%</div>
+                            <div className="dialog-match-info">
+                              <strong>{other.title}</strong>
+                              <span>{formatCFA(other.price)}</span>
+                              {other.phone && <span><Phone size={12} /> {other.phone}</span>}
+                              <span>{other.location}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Post Detail Dialog */}
+        {selectedPost && (
+          <div className="dialog-overlay" onClick={() => setSelectedPost(null)}>
+            <div className="dialog" onClick={(e) => e.stopPropagation()}>
+              <button className="dialog-close" onClick={() => setSelectedPost(null)}><X size={20} /></button>
+              <div className="dialog-header">
+                <div className="post-badges">
+                  <span className="category-icon">{getCategoryIcon(selectedPost.category)}</span>
+                  <span className={`badge ${selectedPost.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{selectedPost.type}</span>
+                  <span className="badge badge-category">{selectedPost.category.replace('_', ' ')}</span>
+                  <span className="badge badge-transaction">{selectedPost.transaction_type}</span>
+                  {selectedPost.is_duplicate && <span className="badge badge-duplicate">duplicate</span>}
+                </div>
+                <h2>{selectedPost.title}</h2>
+              </div>
+              <div className="dialog-body">
+                {selectedPost.phone && (
+                  <div className="dialog-phone"><Phone size={16} /> <strong>{selectedPost.phone}</strong></div>
+                )}
+                <div className="dialog-price">{formatCFA(selectedPost.price)}</div>
+                <div className="dialog-meta">
+                  <div className="meta-item"><MapPin size={16} /><span>{selectedPost.neighborhood ? `${selectedPost.neighborhood}, ` : ''}{selectedPost.city}</span></div>
+                  {selectedPost.bedrooms && <div className="meta-item"><BedDouble size={16} /><span>{selectedPost.bedrooms} bedrooms</span></div>}
+                  {selectedPost.bathrooms && <div className="meta-item"><Bath size={16} /><span>{selectedPost.bathrooms} bathrooms</span></div>}
+                  {selectedPost.area && <div className="meta-item"><Square size={16} /><span>{selectedPost.area} m²</span></div>}
+                </div>
+                {selectedPost.group_name && (
+                  <div className="dialog-group"><MessageSquare size={14} /> Group: {selectedPost.group_name}</div>
+                )}
+                <div className="dialog-sender">From: {selectedPost.sender} — {formatDate(selectedPost.created_at)}</div>
+                <div className="dialog-description">{selectedPost.description}</div>
+              </div>
+            </div>
           </div>
         )}
       </div>

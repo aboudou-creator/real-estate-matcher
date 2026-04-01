@@ -17,7 +17,8 @@ router.get('/', async (req, res) => {
           'neighborhood', rp1.neighborhood,
           'bedrooms', rp1.bedrooms, 'area', rp1.area,
           'transaction_type', rp1.transaction_type,
-          'post_count', rp1.post_count
+          'post_count', rp1.post_count,
+          'phone', (SELECT p1.phone FROM products p1 WHERE p1.real_product_id = rp1.id AND p1.phone IS NOT NULL LIMIT 1)
         ) as post1,
         json_build_object(
           '_id', rp2.id, 'price', rp2.price,
@@ -27,7 +28,8 @@ router.get('/', async (req, res) => {
           'neighborhood', rp2.neighborhood,
           'bedrooms', rp2.bedrooms, 'area', rp2.area,
           'transaction_type', rp2.transaction_type,
-          'post_count', rp2.post_count
+          'post_count', rp2.post_count,
+          'phone', (SELECT p2.phone FROM products p2 WHERE p2.real_product_id = rp2.id AND p2.phone IS NOT NULL LIMIT 1)
         ) as post2
       FROM matches m
       JOIN real_products rp1 ON m.product1_id = rp1.id

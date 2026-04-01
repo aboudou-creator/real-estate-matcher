@@ -1460,6 +1460,190 @@ details summary:hover { color: #93c5fd; }
 }
 
 /* ============================================
+   PHONE & GROUP
+   ============================================ */
+
+.product-phone, .match-product-phone, .dialog-phone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #22c55e;
+  font-size: 0.95rem;
+  margin: 6px 0;
+}
+.product-phone strong, .match-product-phone strong, .dialog-phone strong {
+  letter-spacing: 0.3px;
+}
+
+.post-group, .dialog-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  margin: 6px 0;
+}
+
+.linked-post-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+/* ============================================
+   DIALOG / MODAL
+   ============================================ */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+.dialog {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 640px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 28px;
+  position: relative;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+}
+
+.dialog-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  transition: all 0.15s;
+}
+.dialog-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.dialog-header {
+  margin-bottom: 20px;
+}
+.dialog-header h2 {
+  margin: 12px 0 0;
+  font-size: 1.3rem;
+  color: #f1f5f9;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dialog-price {
+  font-size: 1.3rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 12px;
+}
+
+.dialog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dialog-section-title {
+  font-size: 0.95rem;
+  color: #94a3b8;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 16px;
+  margin: 16px 0 10px;
+}
+
+.dialog-linked-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialog-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialog-match-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dialog-match-score {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #22c55e;
+  min-width: 40px;
+}
+
+.dialog-match-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+.dialog-match-info strong {
+  color: #f1f5f9;
+}
+
+.dialog-sender {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin: 10px 0;
+}
+
+.dialog-description {
+  font-size: 0.88rem;
+  color: #cbd5e1;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.linked-post-date {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+/* ============================================
    RESPONSIVE
    ============================================ */
 

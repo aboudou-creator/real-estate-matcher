@@ -45,6 +45,9 @@ const CATEGORY_PATTERNS = {
     /\bF[1-6]\b/, /\bT[1-6]\b/,
     /\bpieces?\b/i, /\bpièces?\b/i,
   ],
+  room: [
+    /\bchambre\b/i, /\broom\b/i,
+  ],
   house: [
     /\bmaison\b/i, /\bvilla\b/i, /\brésidence\b/i, /\bresidence\b/i,
     /\bpavillon\b/i, /\bduplex\b/i, /\btriplex\b/i,
@@ -153,6 +156,9 @@ function extractLocation(text) {
     }
   }
 
+  // Default to Dakar if no location found
+  if (!city) city = 'Dakar';
+
   return { city, neighborhood };
 }
 
@@ -171,7 +177,7 @@ function extractRealEstateInfo(text) {
 
   // Detect category (check agricultural_ground before ground since it's more specific)
   let category = null;
-  for (const cat of ['agricultural_ground', 'ground', 'house', 'apartment']) {
+  for (const cat of ['agricultural_ground', 'ground', 'house', 'room', 'apartment']) {
     if (CATEGORY_PATTERNS[cat].some(p => p.test(text))) {
       category = cat;
       break;
@@ -194,6 +200,7 @@ function extractRealEstateInfo(text) {
   // Build a title from extracted info
   const categoryLabels = {
     apartment: 'Appartement',
+    room: 'Chambre',
     house: 'Maison',
     ground: 'Terrain',
     agricultural_ground: 'Terrain agricole',

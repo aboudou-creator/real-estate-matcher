@@ -33,6 +33,9 @@ let sock = null;
 let qrCode = null;
 let io = null;
 
+// Cache group JID → name mapping
+const groupNameCache = {};
+
 // Baileys ESM modules — loaded once via dynamic import
 let makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers;
 
@@ -132,6 +135,11 @@ async function connectWhatsApp() {
       console.log(`✅ WhatsApp connected as ${sock.user?.id}`);
       qrCode = null;
       if (io) io.emit('connected', { user: sock.user });
+
+      // Auto-fetch recent messages from monitored groups
+      fetchGroupHistory(sock).catch(err =>
+        console.error('Error fetching group history:', err.message)
+      );
     }
   });
 
@@ -139,8 +147,6 @@ async function connectWhatsApp() {
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
-
-console.log(`[RAW] Received message type=${type}, count=${messages.length}`);
 
     for (const message of messages) {
       try {
@@ -152,6 +158,78 @@ console.log(`[RAW] Received message type=${type}, count=${messages.length}`);
   });
 
   return sock;
+}
+
+async function resolveGroupName(jid) {
+  if (groupNameCache[jid]) return groupNameCache[jid];
+  try {
+    const metadata = await sock.groupMetadata(jid);
+    groupNameCache[jid] = metadata.subject || jid;
+    return groupNameCache[jid];
+  } catch (_) {
+    return jid;
+  }
+}
+
+async function fetchGroupHistory(socket) {
+  console.log('📜 Fetching recent messages from groups...');
+
+  let groups = [];
+  if (TARGET_GROUPS.length > 0) {
+    groups = TARGET_GROUPS;
+  } else {
+    // Get all groups the user is part of
+    try {
+      const allGroups = await socket.groupFetchAllParticipating();
+      groups = Object.keys(allGroups);
+    } catch (err) {
+      console.error('Failed to fetch groups:', err.message);
+      return;
+    }
+  }
+
+  console.log(`📜 Scanning ${groups.length} group(s) for recent messages...`);
+
+  for (const jid of groups) {
+    try {
+      const groupName = await resolveGroupName(jid);
+      console.log(`📜 Fetching history from: ${groupName}`);
+
+      // Fetch messages in batches using Baileys store-less pagination
+      let cursor = undefined;
+      let fetched = 0;
+      const BATCH = 50;
+      const MAX = 500;
+
+      while (fetched < MAX) {
+        const limit = Math.min(BATCH, MAX - fetched);
+        const result = await socket.fetchMessageHistory(limit, jid, cursor);
+        const messages = result?.messages || result || [];
+        if (!Array.isArray(messages) || messages.length === 0) break;
+
+        for (const msg of messages) {
+          try {
+            await handleMessage(msg);
+          } catch (err) {
+            // skip individual message errors
+          }
+        }
+
+        fetched += messages.length;
+        if (messages.length < limit) break;
+
+        // Set cursor for next batch
+        const lastMsg = messages[messages.length - 1];
+        cursor = lastMsg.key;
+      }
+
+      console.log(`   ✅ Processed ${fetched} messages from ${groupName}`);
+    } catch (err) {
+      console.error(`   ❌ Error fetching history for ${jid}:`, err.message);
+    }
+  }
+
+  console.log('📜 History fetch complete.');
 }
 
 async function handleMessage(message) {
@@ -167,14 +245,14 @@ async function handleMessage(message) {
     message.message?.videoMessage?.caption ||
     '';
 
-console.log(`[DEBUG] Message from ${message.pushName || 'Unknown'} in ${jid}: ${text.substring(0, 80)}...`);
-
   if (!text || text.length < 15) return;
 
   const extracted = extractRealEstateInfo(text);
   if (!extracted.isRealEstatePost) return;
 
   console.log(`📨 Real estate post detected from ${message.pushName || 'Unknown'}: ${extracted.title}`);
+
+  const groupName = await resolveGroupName(jid);
 
   const postData = {
     title: extracted.title,
@@ -195,6 +273,7 @@ console.log(`[DEBUG] Message from ${message.pushName || 'Unknown'} in ${jid}: ${
     phone: extracted.phone,
     whatsapp_message_id: message.key.id,
     group_id: jid,
+    group_name: groupName,
   };
 
   const result = await processNewPost(postData);

@@ -25,7 +25,8 @@ router.get('/', async (req, res) => {
               'id', p.id, 'title', p.title, 'description', p.description,
               'sender', p.sender, 'phone', p.phone, 'price', p.price,
               'location', p.location, 'city', p.city, 'neighborhood', p.neighborhood,
-              'area', p.area, 'is_duplicate', p.is_duplicate, 'created_at', p.created_at
+              'area', p.area, 'is_duplicate', p.is_duplicate, 'created_at', p.created_at,
+              'group_name', p.group_name
             ) ORDER BY p.is_duplicate ASC, p.created_at ASC
           ) FILTER (WHERE p.id IS NOT NULL),
           '[]'

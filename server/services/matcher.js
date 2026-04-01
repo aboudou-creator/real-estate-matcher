@@ -88,7 +88,7 @@ async function findMatchesForProduct(realProductId) {
   for (const candidate of candidates.rows) {
     const score = calculateMatchScore(rp, candidate);
 
-    if (score >= 0.45) {
+    if (score >= 0.70) {
       // Check if match already exists
       const existing = await pool.query(
         `SELECT id FROM matches

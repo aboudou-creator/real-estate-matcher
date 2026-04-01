@@ -23,7 +23,7 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         type VARCHAR(20) NOT NULL CHECK (type IN ('offer', 'demand')),
-        category VARCHAR(30) NOT NULL CHECK (category IN ('apartment', 'house', 'ground', 'agricultural_ground')),
+        category VARCHAR(30) NOT NULL,
         transaction_type VARCHAR(10) NOT NULL CHECK (transaction_type IN ('sale', 'rent')),
         price NUMERIC(15, 2),
         currency VARCHAR(10) DEFAULT 'XOF',
@@ -47,7 +47,7 @@ async function initDB() {
         title VARCHAR(255) NOT NULL,
         description TEXT,
         type VARCHAR(20) NOT NULL CHECK (type IN ('offer', 'demand')),
-        category VARCHAR(30) NOT NULL CHECK (category IN ('apartment', 'house', 'ground', 'agricultural_ground')),
+        category VARCHAR(30) NOT NULL,
         transaction_type VARCHAR(10) NOT NULL CHECK (transaction_type IN ('sale', 'rent')),
         price NUMERIC(15, 2),
         currency VARCHAR(10) DEFAULT 'XOF',
@@ -63,6 +63,7 @@ async function initDB() {
         phone VARCHAR(50),
         whatsapp_message_id VARCHAR(255),
         group_id VARCHAR(255),
+        group_name VARCHAR(255),
         is_duplicate BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -94,6 +95,13 @@ async function initDB() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
+    // Add group_name column if it doesn't exist (migration for existing DBs)
+    await client.query(`
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS group_name VARCHAR(255);
+      ALTER TABLE real_products DROP CONSTRAINT IF EXISTS real_products_category_check;
+      ALTER TABLE products DROP CONSTRAINT IF EXISTS products_category_check;
+    `).catch(() => {});
+
     console.log('PostgreSQL: products, matches, duplicates tables ready');
   } finally {
     client.release();

@@ -27,7 +27,7 @@ async function findMatchingRealProduct(post) {
 
   const where = conditions.join(' AND ');
   const result = await pool.query(
-    `SELECT * FROM real_products WHERE ${where} ORDER BY created_at DESC`,
+    `SELECT * FROM real_products rp WHERE ${where} ORDER BY created_at DESC`,
     params
   );
 
@@ -107,8 +107,8 @@ async function processNewPost(postData) {
         real_product_id, title, description, type, category, transaction_type,
         price, currency, location, city, neighborhood,
         latitude, longitude, bedrooms, bathrooms, area,
-        sender, phone, whatsapp_message_id, group_id, is_duplicate
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        sender, phone, whatsapp_message_id, group_id, group_name, is_duplicate
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
       RETURNING *`,
       [
         realProductId,
@@ -118,6 +118,7 @@ async function processNewPost(postData) {
         postData.city, postData.neighborhood,
         postData.latitude, postData.longitude, postData.bedrooms, postData.bathrooms, postData.area,
         postData.sender, postData.phone, postData.whatsapp_message_id, postData.group_id,
+        postData.group_name || null,
         isDuplicate,
       ]
     );
