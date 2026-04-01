@@ -190,13 +190,25 @@ function extractPrice(text) {
 
 // ─── Bedrooms extraction ─────────────────────────────────────────────────────
 function extractBedrooms(text) {
-  // "F3", "T4" etc → number of rooms
+  // "F3", "T4" etc → number of rooms MINUS 1 for living room = bedrooms
+  // F2 = 1 bedroom (2 rooms total: 1 bedroom + 1 living room)
+  // F3 = 2 bedrooms, F4 = 3 bedrooms, etc.
   let m = text.match(/\b[FT](\d)\b/);
+  if (m) {
+    const totalRooms = parseInt(m[1], 10);
+    return totalRooms > 1 ? totalRooms - 1 : 1;
+  }
+
+  // "3 chambres", "4 ch", "2 pièces" → explicit bedroom count
+  m = text.match(/(\d+)\s*(?:chambres?|ch\b)/i);
   if (m) return parseInt(m[1], 10);
 
-  // "3 chambres", "4 ch", "2 pièces"
-  m = text.match(/(\d+)\s*(?:chambres?|ch\b|pièces?|pieces?|rooms?)/i);
-  if (m) return parseInt(m[1], 10);
+  // "2 pièces" → subtract 1 for living room
+  m = text.match(/(\d+)\s*(?:pièces?|pieces?)/i);
+  if (m) {
+    const totalRooms = parseInt(m[1], 10);
+    return totalRooms > 1 ? totalRooms - 1 : 1;
+  }
 
   return null;
 }

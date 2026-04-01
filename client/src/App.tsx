@@ -149,6 +149,7 @@ interface RealProduct {
   longitude: number;
   bedrooms: number | null;
   bathrooms: number | null;
+  toilets: number | null;
   area: number;
   post_count: number;
   match_count: number;
@@ -308,7 +309,7 @@ function App() {
     socket.on('newRealProduct', (rp: RealProduct) => { newRPBuffer.current.push(rp); });
     socket.on('realProductUpdated', (rp: RealProduct) => { updatedRPBuffer.current.push(rp); });
 
-    // Flush buffers to state at most every 2 seconds
+    // Flush buffers to state at most every 5 seconds
     const flush = setInterval(() => {
       const posts = newPostsBuffer.current.splice(0);
       const matchs = newMatchesBuffer.current.splice(0);
@@ -327,7 +328,7 @@ function App() {
           return next;
         });
       }
-    }, 2000);
+    }, 5000);
 
     return () => { socket.close(); clearInterval(flush); };
   }, []);
@@ -527,6 +528,7 @@ function App() {
                   <div className="meta-item"><MapPin size={14} /><span>{rp.neighborhood ? `${rp.neighborhood}, ` : ''}{rp.city}</span></div>
                   {rp.bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{rp.bedrooms} bed</span></div>}
                   {rp.bathrooms && <div className="meta-item"><Bath size={14} /><span>{rp.bathrooms} bath</span></div>}
+                  {rp.toilets && <div className="meta-item"><span>🚽</span><span>{rp.toilets} toilet</span></div>}
                   {rp.area && <div className="meta-item"><Square size={14} /><span>{rp.area} m²</span></div>}
                 </div>
 

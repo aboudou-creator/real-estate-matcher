@@ -101,6 +101,8 @@ async function initDB() {
       ALTER TABLE real_products DROP CONSTRAINT IF EXISTS real_products_category_check;
       ALTER TABLE products DROP CONSTRAINT IF EXISTS products_category_check;
       ALTER TABLE real_products ADD COLUMN IF NOT EXISTS zone VARCHAR(100);
+      ALTER TABLE real_products ADD COLUMN IF NOT EXISTS toilets INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS toilets INTEGER;
     `).catch(() => {});
 
     console.log('PostgreSQL: products, matches, duplicates tables ready');
