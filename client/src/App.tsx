@@ -155,6 +155,7 @@ type FilterType = 'all' | 'offers' | 'demands';
 type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground';
 type TransactionFilter = 'all' | 'sale' | 'rent';
 type MatchTierFilter = 'all' | 'high' | 'mid' | 'low';
+type MatchCriteria = 'city' | 'category' | 'transaction' | 'bedrooms';
 type BedroomsFilter = 'all' | '1' | '2' | '3' | '4' | '5+';
 
 const getCategoryIcon = (category: string) => {
@@ -208,6 +209,7 @@ function App() {
   const [bedroomsFilter, setBedroomsFilter] = useState<BedroomsFilter>('all');
   const [priceMax, setPriceMax] = useState<string>('');
   const [matchTierFilter, setMatchTierFilter] = useState<MatchTierFilter>('all');
+  const [matchCriteriaFilters, setMatchCriteriaFilters] = useState<Set<MatchCriteria>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [expandedRealProduct, setExpandedRealProduct] = useState<number | null>(null);
@@ -653,8 +655,22 @@ function App() {
     );
   };
 
+  const toggleCriteria = (c: MatchCriteria) =>
+    setMatchCriteriaFilters(prev => {
+      const next = new Set(prev);
+      next.has(c) ? next.delete(c) : next.add(c);
+      return next;
+    });
+
   const sortedMatches = [...matches]
     .filter(m => matchTierFilter === 'all' || getScoreTier(m.score) === matchTierFilter)
+    .filter(m => {
+      if (matchCriteriaFilters.has('city')        && m.post1.city !== m.post2.city) return false;
+      if (matchCriteriaFilters.has('category')    && m.post1.category !== m.post2.category) return false;
+      if (matchCriteriaFilters.has('transaction') && m.post1.transaction_type !== m.post2.transaction_type) return false;
+      if (matchCriteriaFilters.has('bedrooms')    && (m.post1.bedrooms == null || m.post1.bedrooms !== m.post2.bedrooms)) return false;
+      return true;
+    })
     .sort((a, b) => b.score - a.score);
 
   const matchCounts = {
@@ -667,22 +683,53 @@ function App() {
   const renderMatches = () => (
     <>
       <div className="card">
-        <div className="filters">
-          <button onClick={() => setMatchTierFilter('all')} className={`filter-btn ${matchTierFilter === 'all' ? 'active-all' : ''}`}>
-            All ({matchCounts.all})
-          </button>
-          <button onClick={() => setMatchTierFilter('high')} className={`filter-btn ${matchTierFilter === 'high' ? 'active-offers' : ''}`}>
-            Excellent ({matchCounts.high})
-          </button>
-          <button onClick={() => setMatchTierFilter('mid')} className={`filter-btn ${matchTierFilter === 'mid' ? 'active-all' : ''}`}>
-            Good ({matchCounts.mid})
-          </button>
-          <button onClick={() => setMatchTierFilter('low')} className={`filter-btn ${matchTierFilter === 'low' ? 'active-demands' : ''}`}>
-            Partial ({matchCounts.low})
-          </button>
+        <div className="filter-row">
+          <div className="filters">
+            <button onClick={() => setMatchTierFilter('all')} className={`filter-btn ${matchTierFilter === 'all' ? 'active-all' : ''}`}>
+              All ({matchCounts.all})
+            </button>
+            <button onClick={() => setMatchTierFilter('high')} className={`filter-btn ${matchTierFilter === 'high' ? 'active-offers' : ''}`}>
+              Excellent ({matchCounts.high})
+            </button>
+            <button onClick={() => setMatchTierFilter('mid')} className={`filter-btn ${matchTierFilter === 'mid' ? 'active-all' : ''}`}>
+              Good ({matchCounts.mid})
+            </button>
+            <button onClick={() => setMatchTierFilter('low')} className={`filter-btn ${matchTierFilter === 'low' ? 'active-demands' : ''}`}>
+              Partial ({matchCounts.low})
+            </button>
+          </div>
+        </div>
+        <div className="filter-row">
+          <span className="criteria-label">Identical criteria:</span>
+          <div className="criteria-chips">
+            {(['city', 'category', 'transaction', 'bedrooms'] as MatchCriteria[]).map(c => {
+              const labels: Record<MatchCriteria, string> = {
+                city: '📍 Same City',
+                category: '🏠 Same Category',
+                transaction: '💰 Same Transaction',
+                bedrooms: '🛏 Same Bedrooms',
+              };
+              const active = matchCriteriaFilters.has(c);
+              return (
+                <button
+                  key={c}
+                  className={`criteria-chip ${active ? 'active' : ''}`}
+                  onClick={() => toggleCriteria(c)}
+                >
+                  {labels[c]}
+                </button>
+              );
+            })}
+            {matchCriteriaFilters.size > 0 && (
+              <button className="criteria-chip-clear" onClick={() => setMatchCriteriaFilters(new Set())}>
+                ✕ Clear
+              </button>
+            )}
+          </div>
         </div>
         <div className="filter-results">
           {sortedMatches.length} of {matches.length} matches
+          {matchCriteriaFilters.size > 0 && <span className="criteria-active-hint"> — {matchCriteriaFilters.size} criteria active</span>}
         </div>
       </div>
 

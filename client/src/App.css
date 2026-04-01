@@ -466,6 +466,64 @@
   border-color: rgba(239,68,68,0.5) !important;
 }
 
+.criteria-label {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-right: 10px;
+}
+
+.criteria-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.criteria-chip {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(99,102,241,0.08);
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.criteria-chip:hover {
+  border-color: rgba(99,102,241,0.6);
+  color: #c7d2fe;
+  background: rgba(99,102,241,0.18);
+}
+.criteria-chip.active {
+  border-color: #818cf8;
+  background: rgba(99,102,241,0.28);
+  color: #e0e7ff;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.18);
+}
+
+.criteria-chip-clear {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(239,68,68,0.3);
+  background: transparent;
+  color: #f87171;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.criteria-chip-clear:hover {
+  background: rgba(239,68,68,0.1);
+}
+
+.criteria-active-hint {
+  color: #818cf8;
+  font-size: 0.8rem;
+}
+
 .filter-results {
   margin-top: 14px;
   padding-top: 12px;
