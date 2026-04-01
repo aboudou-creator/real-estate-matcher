@@ -214,6 +214,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<RealProduct | null>(null);
   const [selectedPost, setSelectedPost] = useState<Product | null>(null);
+  const [flushConfirm, setFlushConfirm] = useState(false);
+  const [flushStatus, setFlushStatus] = useState<string | null>(null);
 
   const fetchInitialData = useCallback(async () => {
     try {
@@ -769,6 +771,45 @@ function App() {
                     .catch(() => setWaStatus('Failed to reach server'));
                 }}>Connect WhatsApp</button>
               )}
+              <button className="btn-newqr" onClick={() => {
+                setWaStatus('Disconnecting...');
+                setConnected(false);
+                setQrCode(null);
+                fetch(`${API_URL}/api/whatsapp/disconnect`, { method: 'POST' })
+                  .then(r => r.json())
+                  .then(() => {
+                    setWaStatus('Session cleared — connecting for new QR...');
+                    return fetch(`${API_URL}/api/whatsapp/connect`, { method: 'POST' });
+                  })
+                  .then(r => r.json())
+                  .then(d => { if (!d.ok) setWaStatus(d.message); })
+                  .catch(() => setWaStatus('Failed to reach server'));
+              }} title="Disconnect and get a fresh QR code">🔄 New QR</button>
+              {!flushConfirm ? (
+                <button className="btn-flush" onClick={() => setFlushConfirm(true)} title="Clear all database data">🗑 Flush DB</button>
+              ) : (
+                <span className="flush-confirm">
+                  <span>Delete all data?</span>
+                  <button className="btn-flush-confirm" onClick={() => {
+                    setFlushConfirm(false);
+                    setFlushStatus('Flushing...');
+                    fetch(`${API_URL}/api/admin/flush`, { method: 'POST' })
+                      .then(r => r.json())
+                      .then(d => {
+                        setFlushStatus(d.ok ? '✅ DB flushed' : '❌ ' + d.message);
+                        if (d.ok) {
+                          setProducts([]);
+                          setRealProducts([]);
+                          setMatches([]);
+                          setTimeout(() => setFlushStatus(null), 3000);
+                        }
+                      })
+                      .catch(() => setFlushStatus('❌ Failed'));
+                  }}>Yes, delete</button>
+                  <button className="btn-flush-cancel" onClick={() => setFlushConfirm(false)}>Cancel</button>
+                </span>
+              )}
+              {flushStatus && <span className="flush-status">{flushStatus}</span>}
             </div>
             {waStatus && (
               <div style={{ padding: '8px 0', color: connected ? '#22c55e' : '#f59e0b', fontSize: 14 }}>

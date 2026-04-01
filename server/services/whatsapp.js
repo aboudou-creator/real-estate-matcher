@@ -4,6 +4,7 @@
 // No auto-retry — user must manually request a new QR code.
 
 const path = require('path');
+const fs = require('fs');
 const { extractRealEstateInfo } = require('./extractor');
 const { processNewPost } = require('./dedup');
 const { findMatchesForProduct } = require('./matcher');
@@ -282,4 +283,24 @@ async function handleMessage(message) {
   return true;
 }
 
-module.exports = { connectWhatsApp, getStatus, setIo };
+async function disconnectWhatsApp() {
+  if (sock) {
+    try { await sock.logout(); } catch (_) {}
+    try { sock.end(); } catch (_) {}
+    sock = null;
+  }
+  qrCode = null;
+  // Wipe auth files so next connect asks for a fresh QR code
+  try {
+    if (fs.existsSync(AUTH_DIR)) {
+      fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+    }
+  } catch (_) {}
+  if (io) {
+    io.emit('disconnected');
+    io.emit('wa_error', 'Disconnected — click "Connect WhatsApp" to scan a new QR code');
+  }
+  console.log('🔌 WhatsApp session cleared — ready for fresh QR scan');
+}
+
+module.exports = { connectWhatsApp, disconnectWhatsApp, getStatus, setIo };

@@ -6,7 +6,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const { initDB } = require('./db/postgres');
-const { connectWhatsApp, getStatus, setIo } = require('./services/whatsapp');
+const { connectWhatsApp, disconnectWhatsApp, getStatus, setIo } = require('./services/whatsapp');
 
 // ─── Express + Socket.IO setup ───────────────────────────────────────────────
 const app = express();
@@ -43,6 +43,14 @@ app.post('/api/whatsapp/connect', async (_req, res) => {
   try {
     await connectWhatsApp();
     res.json({ ok: true, message: 'WhatsApp connection initiated — QR code will appear shortly' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+app.post('/api/whatsapp/disconnect', async (_req, res) => {
+  try {
+    await disconnectWhatsApp();
+    res.json({ ok: true, message: 'Disconnected — scan a new QR code to reconnect' });
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }
