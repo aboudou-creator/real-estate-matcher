@@ -163,7 +163,7 @@ const RENT_PATTERNS = [
 ];
 
 // ─── Price extraction ────────────────────────────────────────────────────────
-// Handles: "85 000 000 FCFA", "85.000.000 CFA", "85M", "85 millions", "850K", "150mill"
+// Handles: "85 000 000 FCFA", "85.000.000 CFA", "85M", "85 millions", "850K", "150mill", "250000"
 function extractPrice(text) {
   // "XX millions" or "XXM"
   let m = text.match(/(\d+(?:[.,]\d+)?)\s*millions?\b/i);
@@ -184,6 +184,19 @@ function extractPrice(text) {
   // Plain number followed by FCFA/CFA
   m = text.match(/(\d{4,})\s*(?:FCFA|CFA|F)\b/i);
   if (m) return parseInt(m[1], 10);
+
+  // Standalone 5-6 digit numbers (like 250000, 500000) - common in rent posts without currency
+  // Must be preceded by words like "prix", "loyer", "cuisine" or followed by location words
+  m = text.match(/(?:prix|loyer|cout|cuisine|est|à|a)\s*[:]?\s*(\d{5,6})\b/i);
+  if (m) return parseInt(m[1], 10);
+
+  // Fallback: any 6-digit number in the text (250000, 350000, etc.)
+  m = text.match(/\b(\d{5,6})\b/);
+  if (m) {
+    const num = parseInt(m[1], 10);
+    // Only if it looks like a reasonable price (not a phone number)
+    if (num >= 25000 && num <= 999999) return num;
+  }
 
   return null;
 }
