@@ -60,6 +60,10 @@ interface MatchProduct {
   area: number;
   post_count: number;
   phone: string | null;
+  description: string | null;
+  sender: string | null;
+  group_name: string | null;
+  created_at: string | null;
 }
 
 interface Match {
@@ -218,6 +222,7 @@ function App() {
   const [selectedPost, setSelectedPost] = useState<Product | null>(null);
   const [flushConfirm, setFlushConfirm] = useState(false);
   const [flushStatus, setFlushStatus] = useState<string | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
 
   const fetchInitialData = useCallback(async () => {
     try {
@@ -738,7 +743,7 @@ function App() {
         : sortedMatches.map((match) => {
           const tier = getScoreTier(match.score);
           return (
-            <div key={match._id} className={`match-card ${tier}-score`}>
+            <div key={match._id} className={`match-card ${tier}-score`} onClick={() => setSelectedMatch(match)} style={{ cursor: 'pointer' }}>
               <div className="match-header">
                 <ScoreRing score={match.score} />
                 <div className="match-info">
@@ -1020,6 +1025,62 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Match Comparison Dialog */}
+        {selectedMatch && (() => {
+          const tier = getScoreTier(selectedMatch.score);
+          return (
+            <div className="dialog-overlay" onClick={() => setSelectedMatch(null)}>
+              <div className="dialog dialog-wide" onClick={(e) => e.stopPropagation()}>
+                <button className="dialog-close" onClick={() => setSelectedMatch(null)}><X size={20} /></button>
+                <div className="dialog-header">
+                  <div className="match-compare-score">
+                    <ScoreRing score={selectedMatch.score} />
+                    <div>
+                      <div className="match-type-label">{tier === 'high' ? 'Excellent Match' : tier === 'mid' ? 'Good Match' : 'Partial Match'}</div>
+                      <div className="timestamp">{formatDate(selectedMatch.createdAt)}</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="dialog-body">
+                  <div className="match-compare-grid">
+                    {[selectedMatch.post1, selectedMatch.post2].map((prod, i) => (
+                      <div key={i} className={`match-compare-side ${prod.type}`}>
+                        <div className="post-badges" style={{ marginBottom: 10 }}>
+                          <span className="category-icon">{getCategoryIcon(prod.category)}</span>
+                          <span className={`badge ${prod.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{prod.type}</span>
+                          <span className="badge badge-category">{prod.category.replace('_', ' ')}</span>
+                          <span className="badge badge-transaction">{prod.transaction_type}</span>
+                          {prod.post_count > 1 && <span className="badge badge-post-count">{prod.post_count} posts</span>}
+                        </div>
+                        <h3 className="match-compare-title">{prod.title}</h3>
+                        {prod.phone && (
+                          <div className="match-compare-phone"><Phone size={14} /> {prod.phone}</div>
+                        )}
+                        <div className="match-compare-price">{formatCFA(prod.price)}</div>
+                        <div className="match-compare-meta">
+                          <div className="meta-item"><MapPin size={14} /><span>{prod.location}</span></div>
+                          {prod.bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{prod.bedrooms} bedrooms</span></div>}
+                          {prod.area && <div className="meta-item"><Square size={14} /><span>{prod.area} m²</span></div>}
+                        </div>
+                        {(prod.sender || prod.group_name) && (
+                          <div className="match-compare-sender">
+                            {prod.sender && <span><Users size={13} /> {prod.sender}</span>}
+                            {prod.group_name && <span><MessageSquare size={13} /> {prod.group_name}</span>}
+                            {prod.created_at && <span className="timestamp">{formatDate(prod.created_at)}</span>}
+                          </div>
+                        )}
+                        {prod.description && (
+                          <div className="match-compare-description">{prod.description}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Post Detail Dialog */}
         {selectedPost && (
