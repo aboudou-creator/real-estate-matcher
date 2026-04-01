@@ -166,16 +166,53 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// ─── Main extraction function ────────────────────────────────────────────────
-function extractRealEstateInfo(text) {
-  if (!text || text.length < 10) return { isRealEstatePost: false };
+// ─── Real estate general keywords (for posts without explicit category) ──────
+const REAL_ESTATE_KEYWORDS = [
+  /\bimmobili[eè]re?\b/i, /\blogement\b/i, /\bhabitat\b/i,
+  /\bloyer\b/i, /\bbail\b/i, /\bpropri[ée]t[ée]\b/i,
+  /\bm[²2]\b/i, /\bmètres?\s*carr/i, /\bFCFA\b/i, /\bCFA\b/i,
+  /\bétage\b/i, /\betage\b/i, /\bsalon\b/i, /\bcuisine\b/i,
+  /\btoilette\b/i, /\bdouche\b/i, /\bgarage\b/i, /\bbalcon\b/i,
+  /\bterrasse\b/i, /\bpiscine\b/i, /\bjardin\b/i,
+];
+
+// ─── Price-based transaction type inference ──────────────────────────────────
+// Senegal market heuristics (XOF):
+//   Rent: typically < 2,000,000 FCFA/month
+//   Sale: typically > 5,000,000 FCFA
+function inferTransactionFromPrice(price) {
+  if (!price) return 'sale'; // default
+  if (price <= 2_000_000) return 'rent';
+  if (price >= 5_000_000) return 'sale';
+  return 'sale'; // ambiguous range defaults to sale
+}
+
+// ─── Category inference from price ───────────────────────────────────────────
+function inferCategoryFromPrice(price) {
+  if (!price) return 'apartment'; // default
+  if (price >= 20_000_000) return 'house'; // likely villa / house sale
+  if (price >= 5_000_000) return 'apartment'; // apartment sale or expensive rent
+  if (price <= 100_000) return 'room'; // cheap → room
+  return 'apartment'; // default mid-range
+}
+
+const CATEGORY_LABELS = {
+  apartment: 'Appartement',
+  room: 'Chambre',
+  house: 'Maison',
+  ground: 'Terrain',
+  agricultural_ground: 'Terrain agricole',
+};
+
+// ─── Single-segment extraction ───────────────────────────────────────────────
+function extractSingle(text, fallbackPhone) {
+  if (!text || text.length < 10) return null;
 
   // Detect offer or demand
   const isOffer = OFFER_PATTERNS.some(p => p.test(text));
   const isDemand = DEMAND_PATTERNS.some(p => p.test(text));
-  if (!isOffer && !isDemand) return { isRealEstatePost: false };
 
-  // Detect category (check agricultural_ground before ground since it's more specific)
+  // Detect category
   let category = null;
   for (const cat of ['agricultural_ground', 'ground', 'house', 'room', 'apartment']) {
     if (CATEGORY_PATTERNS[cat].some(p => p.test(text))) {
@@ -183,38 +220,46 @@ function extractRealEstateInfo(text) {
       break;
     }
   }
-  if (!category) return { isRealEstatePost: false };
 
-  // Transaction type
+  const price = extractPrice(text);
+
+  // If no category, check if the text has real estate keywords + price → infer
+  if (!category) {
+    const hasRealEstateWords = REAL_ESTATE_KEYWORDS.some(p => p.test(text));
+    const hasBedrooms = extractBedrooms(text) !== null;
+    const hasArea = extractArea(text) !== null;
+    if ((isOffer || isDemand) && (hasRealEstateWords || hasBedrooms || hasArea) && price) {
+      category = inferCategoryFromPrice(price);
+    }
+  }
+
+  // Must have offer/demand signal AND a category to be valid
+  if (!isOffer && !isDemand) return null;
+  if (!category) return null;
+
+  // Transaction type: explicit patterns first, then infer from price
   const isSale = SALE_PATTERNS.some(p => p.test(text));
   const isRent = RENT_PATTERNS.some(p => p.test(text));
-  const transactionType = isRent ? 'rent' : isSale ? 'sale' : 'sale'; // default to sale
+  let transactionType;
+  if (isRent && !isSale) transactionType = 'rent';
+  else if (isSale && !isRent) transactionType = 'sale';
+  else if (isRent && isSale) transactionType = isRent ? 'rent' : 'sale';
+  else transactionType = inferTransactionFromPrice(price);
 
-  // Extract fields
-  const price = extractPrice(text);
   const bedrooms = extractBedrooms(text);
   const area = extractArea(text);
-  const phone = extractPhone(text);
+  const phone = extractPhone(text) || fallbackPhone;
   const { city, neighborhood } = extractLocation(text);
 
-  // Build a title from extracted info
-  const categoryLabels = {
-    apartment: 'Appartement',
-    room: 'Chambre',
-    house: 'Maison',
-    ground: 'Terrain',
-    agricultural_ground: 'Terrain agricole',
-  };
   const bedroomLabel = bedrooms ? ` F${bedrooms}` : '';
   const locationLabel = neighborhood ? ` - ${neighborhood}` : city ? ` - ${city}` : '';
-  const title = `${categoryLabels[category]}${bedroomLabel}${locationLabel}`;
+  const title = `${CATEGORY_LABELS[category] || category}${bedroomLabel}${locationLabel}`;
 
-  // Determine type: if both detected, use strongest signal
+  // Determine type
   let type;
   if (isOffer && !isDemand) type = 'offer';
   else if (isDemand && !isOffer) type = 'demand';
   else {
-    // Both matched — check which appears first in the text
     const offerIdx = Math.min(...OFFER_PATTERNS.map(p => { const m = text.search(p); return m >= 0 ? m : Infinity; }));
     const demandIdx = Math.min(...DEMAND_PATTERNS.map(p => { const m = text.search(p); return m >= 0 ? m : Infinity; }));
     type = offerIdx <= demandIdx ? 'offer' : 'demand';
@@ -234,6 +279,50 @@ function extractRealEstateInfo(text) {
     title,
     description: text.substring(0, 500),
   };
+}
+
+// ─── Segment splitter ────────────────────────────────────────────────────────
+// Splits a multi-listing post into individual segments
+function splitIntoSegments(text) {
+  // Split on numbered items: "1.", "2)", "1-", etc.
+  const numberedSplit = text.split(/(?:^|\n)\s*(?:\d+[.)\-]|[•●▪\-]\s)/m).filter(s => s.trim().length > 15);
+  if (numberedSplit.length > 1) return numberedSplit.map(s => s.trim());
+
+  // Split on double newlines
+  const doubleLF = text.split(/\n\s*\n/).filter(s => s.trim().length > 15);
+  if (doubleLF.length > 1) return doubleLF.map(s => s.trim());
+
+  // No split — return whole text
+  return [text.trim()];
+}
+
+// ─── Main extraction function (returns array) ────────────────────────────────
+function extractRealEstateInfo(text) {
+  if (!text || text.length < 10) return { isRealEstatePost: false };
+
+  // First try the whole text as a single product
+  const wholeSingle = extractSingle(text, null);
+
+  // Try splitting into segments
+  const segments = splitIntoSegments(text);
+
+  if (segments.length > 1) {
+    // Extract a shared phone from the full text as fallback
+    const sharedPhone = extractPhone(text);
+    const results = [];
+    for (const seg of segments) {
+      const result = extractSingle(seg, sharedPhone);
+      if (result) results.push(result);
+    }
+    if (results.length > 1) {
+      // Multi-product post
+      return { isRealEstatePost: true, multiple: true, products: results };
+    }
+  }
+
+  // Single product or no products
+  if (wholeSingle) return wholeSingle;
+  return { isRealEstatePost: false };
 }
 
 module.exports = { extractRealEstateInfo, SENEGAL_CITIES, DAKAR_NEIGHBORHOODS };

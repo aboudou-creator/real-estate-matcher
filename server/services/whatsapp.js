@@ -250,54 +250,65 @@ async function handleMessage(message) {
   const extracted = extractRealEstateInfo(text);
   if (!extracted.isRealEstatePost) return;
 
-  console.log(`📨 Real estate post detected from ${message.pushName || 'Unknown'}: ${extracted.title}`);
+  // Normalize to array: single product or multiple products
+  const products = extracted.multiple ? extracted.products : [extracted];
+
+  console.log(`📨 ${products.length} product(s) detected from ${message.pushName || 'Unknown'} in ${jid}`);
 
   const groupName = await resolveGroupName(jid);
 
-  const postData = {
-    title: extracted.title,
-    description: extracted.description,
-    type: extracted.type,
-    category: extracted.category,
-    transaction_type: extracted.transactionType,
-    price: extracted.price,
-    currency: 'XOF',
-    city: extracted.city,
-    neighborhood: extracted.neighborhood,
-    latitude: null,
-    longitude: null,
-    bedrooms: extracted.bedrooms,
-    bathrooms: null,
-    area: extracted.area,
-    sender: message.pushName || 'Unknown',
-    phone: extracted.phone,
-    whatsapp_message_id: message.key.id,
-    group_id: jid,
-    group_name: groupName,
-  };
+  for (let i = 0; i < products.length; i++) {
+    const item = products[i];
+    const postData = {
+      title: item.title,
+      description: item.description,
+      type: item.type,
+      category: item.category,
+      transaction_type: item.transactionType,
+      price: item.price,
+      currency: 'XOF',
+      city: item.city,
+      neighborhood: item.neighborhood,
+      latitude: null,
+      longitude: null,
+      bedrooms: item.bedrooms,
+      bathrooms: null,
+      area: item.area,
+      sender: message.pushName || 'Unknown',
+      phone: item.phone,
+      // Append index for multi-product posts to avoid unique constraint collision
+      whatsapp_message_id: products.length > 1 ? `${message.key.id}_${i}` : message.key.id,
+      group_id: jid,
+      group_name: groupName,
+    };
 
-  const result = await processNewPost(postData);
-  if (!result) return;
+    try {
+      const result = await processNewPost(postData);
+      if (!result) continue;
 
-  const { rawPost, realProductId, isDuplicate } = result;
+      const { rawPost, realProductId, isDuplicate } = result;
 
-  let newMatches = [];
-  if (!isDuplicate) {
-    newMatches = await findMatchesForProduct(realProductId);
+      let newMatches = [];
+      if (!isDuplicate) {
+        newMatches = await findMatchesForProduct(realProductId);
+      }
+
+      io.emit('newPost', rawPost);
+      if (isDuplicate) {
+        io.emit('duplicateDetected', { rawPost, realProductId });
+      }
+      for (const match of newMatches) {
+        io.emit('newMatch', match);
+      }
+
+      console.log(
+        `   → [${i + 1}/${products.length}] ${item.title}: ${isDuplicate ? 'Duplicate (#' + realProductId + ')' : 'New #' + realProductId}` +
+        (newMatches.length > 0 ? ` + ${newMatches.length} match(es)` : '')
+      );
+    } catch (err) {
+      console.error(`   ✗ Error processing product ${i + 1}/${products.length}: ${err.message}`);
+    }
   }
-
-  io.emit('newPost', rawPost);
-  if (isDuplicate) {
-    io.emit('duplicateDetected', { rawPost, realProductId });
-  }
-  for (const match of newMatches) {
-    io.emit('newMatch', match);
-  }
-
-  console.log(
-    `   → ${isDuplicate ? 'Duplicate (linked to product #' + realProductId + ')' : 'New product #' + realProductId}` +
-    (newMatches.length > 0 ? ` + ${newMatches.length} match(es)` : '')
-  );
 }
 
 module.exports = { connectWhatsApp, getStatus, setIo };
