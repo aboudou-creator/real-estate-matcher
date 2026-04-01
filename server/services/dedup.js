@@ -20,6 +20,12 @@ async function findMatchingRealProduct(post) {
     params.push(post.city);
   }
 
+  // Require same neighborhood to prevent false duplicates across different areas
+  if (post.neighborhood) {
+    conditions.push(`rp.neighborhood = $${idx++}`);
+    params.push(post.neighborhood);
+  }
+
   if (post.bedrooms != null) {
     conditions.push(`rp.bedrooms = $${idx++}`);
     params.push(post.bedrooms);
@@ -35,15 +41,43 @@ async function findMatchingRealProduct(post) {
 
   // Among candidates, find the one with closest price
   for (const rp of result.rows) {
-    if (post.price && rp.price) {
-      const priceDiff = Math.abs(post.price - parseFloat(rp.price)) / Math.max(post.price, parseFloat(rp.price));
-      if (priceDiff <= 0.10) return rp; // ≤10% price difference → same product
-    } else if (!post.price && !rp.price) {
-      return rp; // both have no price, other criteria match
+    const rpPrice = rp.price ? parseFloat(rp.price) : null;
+    const postPrice = post.price;
+
+    // Both have prices - must be within 10%
+    if (postPrice && rpPrice) {
+      const priceDiff = Math.abs(postPrice - rpPrice) / Math.max(postPrice, rpPrice);
+      if (priceDiff <= 0.10) return rp;
+    }
+    // One has price, other doesn't - don't match (likely different properties)
+    else if ((postPrice && !rpPrice) || (!postPrice && rpPrice)) {
+      continue;
+    }
+    // Neither has price - only match if same neighborhood confirmed
+    else if (!postPrice && !rpPrice) {
+      // Additional text similarity check for posts without prices
+      if (post.title && rp.title) {
+        const similarity = calculateTextSimilarity(post.title, rp.title);
+        if (similarity >= 0.7) return rp;
+      }
     }
   }
 
   return null;
+}
+
+/**
+ * Calculate simple text similarity between two strings (0-1)
+ */
+function calculateTextSimilarity(str1, str2) {
+  if (!str1 || !str2) return 0;
+  const s1 = str1.toLowerCase().replace(/[^\w\s]/g, '');
+  const s2 = str2.toLowerCase().replace(/[^\w\s]/g, '');
+  const words1 = new Set(s1.split(/\s+/).filter(w => w.length > 2));
+  const words2 = new Set(s2.split(/\s+/).filter(w => w.length > 2));
+  if (words1.size === 0 || words2.size === 0) return 0;
+  const intersection = [...words1].filter(w => words2.has(w));
+  return intersection.length / Math.max(words1.size, words2.size);
 }
 
 /**
