@@ -435,10 +435,7 @@ function App() {
             {filteredRealProducts.map((rp) => {
               const primaryPhone = rp.linked_posts?.find(lp => lp.phone)?.phone;
               return (
-              <div key={rp.id} className={`product-card real-product-card ${rp.post_count > 1 ? 'has-dupes' : ''}`} onClick={() => setSelectedProduct(rp)} style={{ cursor: 'pointer', position: 'relative' }}>
-                {primaryPhone && (
-                  <div className="card-phone-corner"><Phone size={12} /> {primaryPhone}</div>
-                )}
+              <div key={rp.id} className={`product-card real-product-card ${rp.post_count > 1 ? 'has-dupes' : ''}`} onClick={() => setSelectedProduct(rp)} style={{ cursor: 'pointer' }}>
                 <div className="post-header">
                   <div className="post-badges">
                     <span className="category-icon">{getCategoryIcon(rp.category)}</span>
@@ -452,6 +449,9 @@ function App() {
                       <span className="badge badge-match-count"><Users size={11} /> {rp.match_count} match{rp.match_count > 1 ? 'es' : ''}</span>
                     )}
                   </div>
+                  {primaryPhone && (
+                    <div className="card-phone-corner"><Phone size={12} /> {primaryPhone}</div>
+                  )}
                 </div>
 
                 <h4 className="product-title">{rp.title}</h4>
