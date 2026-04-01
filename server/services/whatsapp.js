@@ -140,6 +140,8 @@ async function connectWhatsApp() {
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
 
+console.log(`[RAW] Received message type=${type}, count=${messages.length}`);
+
     for (const message of messages) {
       try {
         await handleMessage(message);
@@ -164,6 +166,8 @@ async function handleMessage(message) {
     message.message?.imageMessage?.caption ||
     message.message?.videoMessage?.caption ||
     '';
+
+console.log(`[DEBUG] Message from ${message.pushName || 'Unknown'} in ${jid}: ${text.substring(0, 80)}...`);
 
   if (!text || text.length < 15) return;
 

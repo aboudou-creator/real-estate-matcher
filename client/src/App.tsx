@@ -187,7 +187,6 @@ const formatDate = (timestamp: string) =>
   });
 
 function App() {
-  const [, setPosts] = useState<Post[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [aggregatedPosts] = useState<AggregatedPost[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -248,7 +247,7 @@ function App() {
     socket.on('connected', () => { setConnected(true); setQrCode(null); setWaStatus('Connected to WhatsApp'); });
     socket.on('disconnected', () => { setConnected(false); setQrCode(null); });
     socket.on('wa_error', (msg: string) => setWaStatus(msg));
-    socket.on('newPost', (post: Post) => setPosts(prev => [post, ...prev]));
+    socket.on('newPost', (post: Product) => setProducts(prev => [post, ...prev]));
     socket.on('newMatch', (match: Match) => setMatches(prev => [match, ...prev]));
     return () => { socket.close(); };
   }, []);
