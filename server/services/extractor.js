@@ -156,8 +156,8 @@ function extractLocation(text) {
     }
   }
 
-  // Default to Dakar if no location found
-  if (!city) city = 'Dakar';
+  // Default to Dakar? if no location found
+  if (!city) city = 'Dakar?';
 
   return { city, neighborhood };
 }

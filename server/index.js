@@ -23,6 +23,20 @@ app.use('/api/products', require('./routes/products'));
 app.use('/api/real-products', require('./routes/realProducts'));
 app.use('/api/matches', require('./routes/matches'));
 
+// Admin: flush all data
+app.post('/api/admin/flush', async (_req, res) => {
+  try {
+    const { pool } = require('./db/postgres');
+    await pool.query('DELETE FROM duplicates');
+    await pool.query('DELETE FROM matches');
+    await pool.query('DELETE FROM products');
+    await pool.query('DELETE FROM real_products');
+    res.json({ ok: true, message: 'All tables flushed' });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
 // WhatsApp endpoints
 app.get('/api/status', (_req, res) => res.json(getStatus()));
 app.post('/api/whatsapp/connect', async (_req, res) => {
