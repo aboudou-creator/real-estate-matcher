@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import {
   Building2, Users, TrendingUp, Home, MapPin, Phone, X, DoorOpen,
@@ -243,6 +243,12 @@ function App() {
     }
   }, []);
 
+  // Buffers for high-frequency socket events — flushed to state every 750ms
+  const newPostsBuffer = useRef<Product[]>([]);
+  const newMatchesBuffer = useRef<Match[]>([]);
+  const newRPBuffer = useRef<RealProduct[]>([]);
+  const updatedRPBuffer = useRef<RealProduct[]>([]);
+
   useEffect(() => {
     // Fetch initial WhatsApp status via HTTP
     fetch(`${API_URL}/api/status`).then(r => r.json()).then(s => {
@@ -256,13 +262,35 @@ function App() {
     socket.on('connected', () => { setConnected(true); setQrCode(null); setWaStatus('Connected to WhatsApp'); });
     socket.on('disconnected', () => { setConnected(false); setQrCode(null); });
     socket.on('wa_error', (msg: string) => setWaStatus(msg));
-    socket.on('newPost', (post: Product) => setProducts(prev => [post, ...prev]));
-    socket.on('newMatch', (match: Match) => setMatches(prev => [match, ...prev]));
-    socket.on('newRealProduct', (rp: RealProduct) => setRealProducts(prev => [rp, ...prev]));
-    socket.on('realProductUpdated', (rp: RealProduct) => setRealProducts(prev =>
-      prev.map(p => p.id === rp.id ? rp : p)
-    ));
-    return () => { socket.close(); };
+
+    // Buffer high-frequency events instead of setState on every message
+    socket.on('newPost', (post: Product) => { newPostsBuffer.current.push(post); });
+    socket.on('newMatch', (match: Match) => { newMatchesBuffer.current.push(match); });
+    socket.on('newRealProduct', (rp: RealProduct) => { newRPBuffer.current.push(rp); });
+    socket.on('realProductUpdated', (rp: RealProduct) => { updatedRPBuffer.current.push(rp); });
+
+    // Flush buffers to state at most every 750ms
+    const flush = setInterval(() => {
+      const posts = newPostsBuffer.current.splice(0);
+      const matchs = newMatchesBuffer.current.splice(0);
+      const newRPs = newRPBuffer.current.splice(0);
+      const updatedRPs = updatedRPBuffer.current.splice(0);
+
+      if (posts.length)    setProducts(prev => [...posts, ...prev]);
+      if (matchs.length)   setMatches(prev => [...matchs, ...prev]);
+      if (newRPs.length || updatedRPs.length) {
+        setRealProducts(prev => {
+          let next = newRPs.length ? [...newRPs, ...prev] : [...prev];
+          if (updatedRPs.length) {
+            const updMap = new Map(updatedRPs.map(r => [r.id, r]));
+            next = next.map(p => updMap.get(p.id) ?? p);
+          }
+          return next;
+        });
+      }
+    }, 750);
+
+    return () => { socket.close(); clearInterval(flush); };
   }, []);
 
   useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
