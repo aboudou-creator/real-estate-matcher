@@ -129,6 +129,9 @@ const CATEGORY_PATTERNS = {
     /\bappart(?:ement)?\b/i, /\bstudio\b/i,
     /\bF[1-6]\b/, /\bT[1-6]\b/,
     /\bpieces?\b/i, /\bpièces?\b/i,
+    /\bchambre\s+salon\b/i, /\bniveau\b/i,
+    /\bdeux\s+chambre/i, /\btrois\s+chambre/i, /\bquatre\s+chambre/i,
+    /\b02\s+chambre/i, /\b03\s+chambre/i, /\b04\s+chambre/i,
   ],
   room: [
     /\bchambre\b/i, /\broom\b/i,
