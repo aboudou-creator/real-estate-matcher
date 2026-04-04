@@ -982,8 +982,8 @@ function App() {
                 </span>
               )}
               <button className="btn-download" onClick={() => {
-                window.open(`${API_URL}/api/products/download`, '_blank');
-              }} title="Download last 100 posts as JSON">⬇ Export 100</button>
+                window.open(`${API_URL}/api/products/download-raw`, '_blank');
+              }} title="Download last 100 raw WhatsApp messages as JSON">⬇ Export Raw 100</button>
               {flushStatus && <span className="flush-status">{flushStatus}</span>}
             </div>
             {waStatus && (

@@ -94,6 +94,22 @@ async function initDB() {
         similarity DOUBLE PRECISION NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS raw_messages (
+        id SERIAL PRIMARY KEY,
+        whatsapp_message_id VARCHAR(255) UNIQUE,
+        sender VARCHAR(255),
+        sender_phone VARCHAR(50),
+        group_id VARCHAR(255),
+        group_name VARCHAR(255),
+        text TEXT NOT NULL,
+        is_real_estate BOOLEAN DEFAULT FALSE,
+        processed_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_raw_messages_created ON raw_messages(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_raw_messages_group ON raw_messages(group_id);
     `);
     // Migrations for existing DBs
     await client.query(`
@@ -105,7 +121,7 @@ async function initDB() {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS toilets INTEGER;
     `).catch(() => {});
 
-    console.log('PostgreSQL: products, matches, duplicates tables ready');
+    console.log('PostgreSQL: products, matches, duplicates, raw_messages tables ready');
   } finally {
     client.release();
   }

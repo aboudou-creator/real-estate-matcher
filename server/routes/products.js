@@ -69,7 +69,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /api/products/download — download last 100 posts as JSON file
+// GET /api/products/download — download last 100 raw posts as JSON file
 router.get('/download', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -85,6 +85,41 @@ router.get('/download', async (req, res) => {
     };
     
     const filename = `posts_export_${new Date().toISOString().split('T')[0]}.json`;
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/products/download-raw — download last 100 raw WhatsApp messages
+router.get('/download-raw', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        id,
+        whatsapp_message_id,
+        sender,
+        sender_phone,
+        group_id,
+        group_name,
+        text,
+        is_real_estate,
+        created_at
+      FROM raw_messages
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+    
+    const data = {
+      exported_at: new Date().toISOString(),
+      count: result.rows.length,
+      messages: result.rows
+    };
+    
+    const filename = `raw_messages_export_${new Date().toISOString().split('T')[0]}.json`;
     
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

@@ -5,6 +5,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { pool } = require('../db/postgres');
 const { extractRealEstateInfo } = require('./extractor');
 const { processNewPost } = require('./dedup');
 const { findMatchesForProduct } = require('./matcher');
@@ -201,15 +202,50 @@ async function handleMessage(message) {
 
   if (!text || text.length < 15) return;
 
+  const groupName = await resolveGroupName(jid);
+
+  // Save ALL messages to raw_messages table first
+  let rawMessageId = null;
+  try {
+    const result = await pool.query(
+      `INSERT INTO raw_messages (whatsapp_message_id, sender, sender_phone, group_id, group_name, text, is_real_estate, processed_at)
+       VALUES ($1, $2, $3, $3, $4, $5, $6, NOW())
+       ON CONFLICT (whatsapp_message_id) DO NOTHING
+       RETURNING id`,
+      [
+        message.key.id,
+        message.pushName || 'Unknown',
+        message.key.participant?.split('@')[0] || null,
+        jid,
+        groupName,
+        text,
+        false // will update to true if it's real estate
+      ]
+    );
+    rawMessageId = result.rows[0]?.id || null;
+  } catch (err) {
+    console.error('Error saving raw message:', err.message);
+  }
+
   const extracted = extractRealEstateInfo(text);
   if (!extracted.isRealEstatePost) return;
+
+  // Update raw message as real estate
+  if (rawMessageId) {
+    try {
+      await pool.query(
+        'UPDATE raw_messages SET is_real_estate = TRUE WHERE id = $1',
+        [rawMessageId]
+      );
+    } catch (err) {
+      // ignore update errors
+    }
+  }
 
   // Normalize to array: single product or multiple products
   const products = extracted.multiple ? extracted.products : [extracted];
 
   console.log(`📨 ${products.length} product(s) detected from ${message.pushName || 'Unknown'} in ${jid}`);
-
-  const groupName = await resolveGroupName(jid);
 
   for (let i = 0; i < products.length; i++) {
     const item = products[i];
