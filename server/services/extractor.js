@@ -1,3 +1,5 @@
+// Developed by Solution Makers
+// Real Estate Extractor - optimized for Senegal real estate WhatsApp parsing
 // ─── French / Senegal real estate text extraction ────────────────────────────
 // Parses WhatsApp messages to detect real estate posts and extract structured
 // information: type (offer/demand), category, transaction type, price, location,
@@ -15,7 +17,7 @@ const DAKAR_NEIGHBORHOODS = [
   // Centre Dakar
   'Plateau', 'Fann', 'Point E', 'Mermoz', 'Mermoz-Sacré-Cœur', 'Fenêtre Mermoz',
   'Sacré-Cœur', 'Sacré-Coeur', 'Sacre Coeur',
-  // Nord Dakar (Sacré-Cœur 1-3 must be checked BEFORE plain Sacré-Cœur)
+  // Nord Dakar (numbered variants first semantically via sorted matching)
   'Sacré-Cœur 1', 'Sacré-Coeur 1', 'Sacré-Cœur 2', 'Sacré-Coeur 2',
   'Sacré-Cœur 3', 'Sacré-Coeur 3',
   'Parcelles Assainies', 'Grand Yoff', 'Liberté', 'Liberte',
@@ -28,10 +30,37 @@ const DAKAR_NEIGHBORHOODS = [
   'Médina', 'Medina', 'Grand Dakar', 'Hann', 'Bel Air', 'Colobane',
   'Cambérène', 'Camberene', 'Dieuppeul', 'Derklé', 'Derkle',
   'Gibraltar', 'Centenaire', 'Amitié', 'Amitie',
-  'Patte d\'Oie', 'Castors',
+  "Patte d'Oie", 'Castors',
   // Thiès neighborhoods
   'Thiès Nord', 'Thies Nord', 'Thiès Sud', 'Thies Sud',
   'Cité Malick Sy', 'Cite Malick Sy', 'Grand Thiès', 'Grand Thies',
+];
+
+const LOCATION_ALIASES = [
+  { pattern: /\bparcelle\s+fadia\b/i, neighborhood: 'Parcelles Assainies', city: 'Dakar' },
+  { pattern: /\bparcelles?\s+assain(?:ie|ies)\b/i, neighborhood: 'Parcelles Assainies', city: 'Dakar' },
+  { pattern: /\bparcelles?\b/i, neighborhood: 'Parcelles Assainies', city: 'Dakar' },
+  { pattern: /\bpatte\s*d['’]?oie(?:\s+builders?)?\b/i, neighborhood: "Patte d'Oie", city: 'Dakar' },
+  { pattern: /\bpoint\s*e\b/i, neighborhood: 'Point E', city: 'Dakar' },
+  { pattern: /\bsacre\s*coeur\s*([123])\b/i, aliasBuilder: m => ({ neighborhood: `Sacré-Cœur ${m[1]}`, city: 'Dakar' }) },
+  { pattern: /\bsacr[ée]\s*[- ]?c(?:oe|œ)ur\s*([123])\b/i, aliasBuilder: m => ({ neighborhood: `Sacré-Cœur ${m[1]}`, city: 'Dakar' }) },
+];
+
+const CATEGORY_ORDER = ['colocation', 'agricultural_ground', 'house', 'apartment', 'room', 'ground'];
+
+const ROOM_FALSE_POSITIVE_PATTERNS = [
+  /\bchambre\s+salon\b/i,
+  /\b(?:deux|trois|quatre|cinq|six|\d{1,2}|0\d)\s+chambres?\b/i,
+  /\b[FT]\d\b/i,
+  /\bstudio\b/i,
+  /\bappart(?:ement)?\b/i,
+  /\bniveau\b/i,
+  /\bcoloc(?:ation|ataire)?\b/i,
+];
+
+const GROUND_CONTEXT_EXCLUSIONS = [
+  /\bparcelle\s+fadia\b/i,
+  /\bparcelles?\s+assain(?:ie|ies)\b/i,
 ];
 
 // ─── Zone mapping ─────────────────────────────────────────────────────────────
@@ -82,33 +111,49 @@ const NEIGHBORHOOD_ZONE_MAP = {
   'Grand Thies': 'Thiès Centre',
 };
 
+function normalizeText(input) {
+  return (input || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’]/g, "'")
+    .replace(/œ/g, 'oe');
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getSortedNeighborhoods() {
+  return [...DAKAR_NEIGHBORHOODS].sort((a, b) => b.length - a.length);
+}
+
 function inferZone(neighborhood, city) {
-  // Sacré-Cœur with number → Nord Dakar (check before plain lookup)
-  if (neighborhood && /sacr[eé][-\s]*c[o\u0153]eur\s*[123]/i.test(neighborhood)) {
+  const normalizedNeighborhood = normalizeText(neighborhood).toLowerCase();
+  if (normalizedNeighborhood && /sacr[e]?[\s-]*coeur\s*[123]\b/i.test(normalizedNeighborhood)) {
     return 'Nord Dakar';
   }
+
   if (neighborhood) {
-    // Exact match (case-insensitive)
     const key = Object.keys(NEIGHBORHOOD_ZONE_MAP).find(
-      k => k.toLowerCase() === neighborhood.toLowerCase()
+      k => normalizeText(k).toLowerCase() === normalizedNeighborhood
     );
     if (key) return NEIGHBORHOOD_ZONE_MAP[key];
   }
-  // City-based fallback
+
   if (city) {
-    if (/rufisque/i.test(city))    return 'Périphérie';
-    if (/diamniadio/i.test(city))  return 'Périphérie';
-    if (/lac\s*rose/i.test(city))  return 'Périphérie';
-    if (/sébi|sebi/i.test(city))   return 'Périphérie';
-    if (/thi[eè]s/i.test(city))    return 'Thiès Centre';
-    if (/pout/i.test(city))        return 'Thiès Extension';
-    if (/mbour/i.test(city))       return 'Thiès Extension';
+    if (/rufisque/i.test(city)) return 'Périphérie';
+    if (/diamniadio/i.test(city)) return 'Périphérie';
+    if (/lac\s*rose/i.test(city)) return 'Périphérie';
+    if (/sébi|sebi/i.test(city)) return 'Périphérie';
+    if (/thi[eè]s/i.test(city)) return 'Thiès Centre';
+    if (/pout/i.test(city)) return 'Thiès Extension';
+    if (/mbour/i.test(city)) return 'Thiès Extension';
   }
+
   return null;
 }
 
 // ─── Pattern definitions ─────────────────────────────────────────────────────
-
 const OFFER_PATTERNS = [
   /\bà\s*vendre\b/i, /\ba\s*vendre\b/i, /\ben\s*vente\b/i,
   /\bje\s*vends?\b/i, /\bon\s*vend\b/i, /\bvends?\b/i,
@@ -127,7 +172,7 @@ const DEMAND_PATTERNS = [
 const CATEGORY_PATTERNS = {
   apartment: [
     /\bappart(?:ement)?\b/i, /\bstudio\b/i,
-    /\bF[1-6]\b/, /\bT[1-6]\b/,
+    /\bF[1-6]\b/i, /\bT[1-6]\b/i,
     /\bpieces?\b/i, /\bpièces?\b/i,
     /\bchambre\s+salon\b/i, /\bniveau\b/i,
     /\bdeux\s+chambre/i, /\btrois\s+chambre/i, /\bquatre\s+chambre/i,
@@ -159,6 +204,7 @@ const SALE_PATTERNS = [
   /\bvente\b/i, /\bvendre\b/i, /\bacheter\b/i, /\bachat\b/i,
   /\bachète\b/i, /\bachete\b/i, /\bà\s*vendre\b/i, /\ba\s*vendre\b/i,
 ];
+
 const RENT_PATTERNS = [
   /\blouer\b/i, /\blocation\b/i, /\bloyer\b/i, /\bbail\b/i,
   /\b\/\s*mois\b/i, /\bpar\s*mois\b/i, /\bmensuel\b/i,
@@ -166,39 +212,40 @@ const RENT_PATTERNS = [
 ];
 
 // ─── Price extraction ────────────────────────────────────────────────────────
-// Handles: "85 000 000 FCFA", "85.000.000 CFA", "85M", "85 millions", "850K", "150mill", "250000"
 function extractPrice(text) {
-  // "XX millions" or "XXM"
-  let m = text.match(/(\d+(?:[.,]\d+)?)\s*millions?\b/i);
+  const normalized = normalizeText(text);
+
+  let m = normalized.match(/(\d+(?:[.,]\d+)?)\s*millions?\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000_000);
 
-  // "XXM" or "XXmill" or "XXmil" shorthand
-  m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:M|mill|mil)\b/i);
+  m = normalized.match(/(\d+(?:[.,]\d+)?)\s*(?:M|mill|mil)\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000_000);
 
-  // "XXK" or "XX mille"
-  m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:K|mille)\b/i);
+  m = normalized.match(/(\d+(?:[.,]\d+)?)\s*(?:K|mille)\b/i);
   if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 1_000);
 
-  // "85 000 000" or "85.000.000" followed by optional FCFA/CFA/F
-  m = text.match(/(\d{1,3}(?:[.\s]\d{3})+)\s*(?:FCFA|CFA|F|francs?)?\b/i);
+  m = normalized.match(/\b(\d{1,3}(?:[.\s]\d{3})+)\s*(?:FCFA|CFA|F|francs?)?\b/i);
   if (m) return parseInt(m[1].replace(/[\s.]/g, ''), 10);
 
-  // Plain number followed by FCFA/CFA
-  m = text.match(/(\d{4,})\s*(?:FCFA|CFA|F)\b/i);
+  m = normalized.match(/\b(\d{4,9})\s*(?:FCFA|CFA|F)\b/i);
   if (m) return parseInt(m[1], 10);
 
-  // Standalone 5-6 digit numbers (like 250000, 500000) - common in rent posts without currency
-  // Must be preceded by words like "prix", "loyer", "cuisine" or followed by location words
-  m = text.match(/(?:prix|loyer|cout|cuisine|est|à|a)\s*[:]?\s*(\d{5,6})\b/i);
+  m = normalized.match(/(?:prix|loyer|tarif|cout|montant|budget|vente|vend|loue|location|disponible|a\s*louer|a\s*vendre|bail)\s*[:=-]?\s*(\d{5,9})\b/i);
   if (m) return parseInt(m[1], 10);
 
-  // Fallback: any 6-digit number in the text (250000, 350000, etc.)
-  m = text.match(/\b(\d{5,6})\b/);
-  if (m) {
-    const num = parseInt(m[1], 10);
-    // Only if it looks like a reasonable price (not a phone number)
-    if (num >= 25000 && num <= 999999) return num;
+  const candidates = [...normalized.matchAll(/\b(\d{5,9})\b/g)].map(match => ({
+    raw: match[1],
+    index: match.index ?? -1,
+  }));
+
+  for (const candidate of candidates) {
+    const value = parseInt(candidate.raw, 10);
+    const before = normalized.slice(Math.max(0, candidate.index - 12), candidate.index);
+    const after = normalized.slice(candidate.index + candidate.raw.length, candidate.index + candidate.raw.length + 12);
+
+    if (/\+?221\s*$/.test(before) || /^\s*\d{2}\s*\d{2}/.test(after)) continue;
+    if (/^\s*m(?:2|²)?\b/i.test(after)) continue;
+    if (value >= 25000 && value <= 999999999) return value;
   }
 
   return null;
@@ -206,20 +253,15 @@ function extractPrice(text) {
 
 // ─── Bedrooms extraction ─────────────────────────────────────────────────────
 function extractBedrooms(text) {
-  // "F3", "T4" etc → number of rooms MINUS 1 for living room = bedrooms
-  // F2 = 1 bedroom (2 rooms total: 1 bedroom + 1 living room)
-  // F3 = 2 bedrooms, F4 = 3 bedrooms, etc.
-  let m = text.match(/\b[FT](\d)\b/);
+  let m = text.match(/\b[FT](\d)\b/i);
   if (m) {
     const totalRooms = parseInt(m[1], 10);
     return totalRooms > 1 ? totalRooms - 1 : 1;
   }
 
-  // "3 chambres", "4 ch", "2 pièces" → explicit bedroom count
   m = text.match(/(\d+)\s*(?:chambres?|ch\b)/i);
   if (m) return parseInt(m[1], 10);
 
-  // "2 pièces" → subtract 1 for living room
   m = text.match(/(\d+)\s*(?:pièces?|pieces?)/i);
   if (m) {
     const totalRooms = parseInt(m[1], 10);
@@ -238,9 +280,16 @@ function extractArea(text) {
 
 // ─── Phone extraction ────────────────────────────────────────────────────────
 function extractPhone(text) {
-  // +221 7X XXX XX XX or 7X XXX XX XX or 77.123.45.67
   const m = text.match(/(?:\+?221[\s.-]?)?(7[0-9][\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2})/);
   if (m) return m[0].replace(/[\s.-]/g, '').replace(/^(?!\+)221/, '+221');
+  return null;
+}
+
+function resolveAliasLocation(normalizedText) {
+  for (const alias of LOCATION_ALIASES) {
+    const match = normalizedText.match(alias.pattern);
+    if (match) return alias.aliasBuilder ? alias.aliasBuilder(match) : alias;
+  }
   return null;
 }
 
@@ -248,43 +297,42 @@ function extractPhone(text) {
 function extractLocation(text) {
   let city = null;
   let neighborhood = null;
+  const normalized = normalizeText(text);
 
-  // Check neighborhoods first (they're more specific)
-  for (const n of DAKAR_NEIGHBORHOODS) {
-    if (new RegExp(`\\b${escapeRegex(n)}\\b`, 'i').test(text)) {
-      neighborhood = n;
-      city = 'Dakar';
-      break;
+  const aliasLocation = resolveAliasLocation(normalized);
+  if (aliasLocation) {
+    neighborhood = aliasLocation.neighborhood || null;
+    city = aliasLocation.city || null;
+  }
+
+  if (!neighborhood) {
+    for (const n of getSortedNeighborhoods()) {
+      const normalizedNeighborhood = normalizeText(n);
+      if (new RegExp(`\\b${escapeRegex(normalizedNeighborhood)}\\b`, 'i').test(normalized)) {
+        neighborhood = n;
+        city = city || (/thi[eè]s/i.test(n) ? 'Thiès' : 'Dakar');
+        break;
+      }
     }
   }
 
-  // Check cities
   for (const c of SENEGAL_CITIES) {
-    if (new RegExp(`\\b${escapeRegex(c)}\\b`, 'i').test(text)) {
+    const normalizedCity = normalizeText(c);
+    if (new RegExp(`\\b${escapeRegex(normalizedCity)}\\b`, 'i').test(normalized)) {
       city = c;
       break;
     }
   }
 
-  // Fallback: "à [Location]" or "situé à [Location]"
   if (!city && !neighborhood) {
     const m = text.match(/(?:à|a|situé\s+à|situe\s+a|dans)\s+([A-ZÀ-Ü][a-zà-ü]+(?:\s+[A-ZÀ-Ü][a-zà-ü]+)?)/);
-    if (m) {
-      const loc = m[1].trim();
-      // Check if it looks like a place name (capitalized)
-      if (loc.length > 2) neighborhood = loc;
-    }
+    if (m) neighborhood = m[1].trim();
   }
 
-  // Default to Dakar? if no location found
   if (!city) city = 'Dakar?';
 
   const zone = inferZone(neighborhood, city);
   return { city, neighborhood, zone };
-}
-
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ─── Real estate general keywords (for posts without explicit category) ──────
@@ -297,24 +345,41 @@ const REAL_ESTATE_KEYWORDS = [
   /\bterrasse\b/i, /\bpiscine\b/i, /\bjardin\b/i,
 ];
 
-// ─── Price-based transaction type inference ──────────────────────────────────
-// Senegal market heuristics (XOF):
-//   Rent: typically < 2,000,000 FCFA/month
-//   Sale: typically > 5,000,000 FCFA
 function inferTransactionFromPrice(price) {
-  if (!price) return 'sale'; // default
+  if (!price) return 'sale';
   if (price <= 2_000_000) return 'rent';
   if (price >= 5_000_000) return 'sale';
-  return 'sale'; // ambiguous range defaults to sale
+  return 'sale';
 }
 
-// ─── Category inference from price ───────────────────────────────────────────
 function inferCategoryFromPrice(price) {
-  if (!price) return 'apartment'; // default
-  if (price >= 20_000_000) return 'house'; // likely villa / house sale
-  if (price >= 5_000_000) return 'apartment'; // apartment sale or expensive rent
-  if (price <= 100_000) return 'room'; // cheap → room
-  return 'apartment'; // default mid-range
+  if (!price) return 'apartment';
+  if (price >= 20_000_000) return 'house';
+  if (price >= 5_000_000) return 'apartment';
+  if (price <= 100_000) return 'room';
+  return 'apartment';
+}
+
+function looksLikeNeighborhoodAfterParcelle(text) {
+  const normalized = normalizeText(text);
+  if (GROUND_CONTEXT_EXCLUSIONS.some(p => p.test(normalized))) return true;
+  return LOCATION_ALIASES.some(alias => /parcelle/.test(alias.pattern.source) && alias.pattern.test(normalized));
+}
+
+function detectCategory(text) {
+  const normalized = normalizeText(text);
+
+  for (const category of CATEGORY_ORDER) {
+    if (category === 'ground' && looksLikeNeighborhoodAfterParcelle(normalized)) continue;
+    if (category === 'room' && ROOM_FALSE_POSITIVE_PATTERNS.some(p => p.test(normalized))) continue;
+    if (category === 'ground' && /\bterrain\s+agricole\b/i.test(normalized)) continue;
+
+    if (CATEGORY_PATTERNS[category].some(pattern => pattern.test(text))) {
+      return category;
+    }
+  }
+
+  return null;
 }
 
 const CATEGORY_LABELS = {
@@ -330,60 +395,72 @@ const CATEGORY_LABELS = {
 function extractSingle(text, fallbackPhone) {
   if (!text || text.length < 10) return null;
 
-  // Detect offer or demand
-  const isOffer = OFFER_PATTERNS.some(p => p.test(text));
-  const isDemand = DEMAND_PATTERNS.some(p => p.test(text));
+  let isOffer = OFFER_PATTERNS.some(p => p.test(text));
+  let isDemand = DEMAND_PATTERNS.some(p => p.test(text));
 
-  // Detect category - check more specific indicators first
-  let category = null;
-  for (const cat of ['apartment', 'colocation', 'room', 'house', 'agricultural_ground', 'ground']) {
-    if (CATEGORY_PATTERNS[cat].some(p => p.test(text))) {
-      category = cat;
-      break;
-    }
-  }
-
+  let category = detectCategory(text);
   const price = extractPrice(text);
 
-  // If no category, check if the text has real estate keywords + price → infer
+  const hasRealEstateWords = REAL_ESTATE_KEYWORDS.some(p => p.test(text));
+  const bedrooms = extractBedrooms(text);
+  const area = extractArea(text);
+  const hasBedrooms = bedrooms !== null;
+  const hasArea = area !== null;
+
   if (!category) {
-    const hasRealEstateWords = REAL_ESTATE_KEYWORDS.some(p => p.test(text));
-    const hasBedrooms = extractBedrooms(text) !== null;
-    const hasArea = extractArea(text) !== null;
     if ((isOffer || isDemand) && (hasRealEstateWords || hasBedrooms || hasArea) && price) {
       category = inferCategoryFromPrice(price);
     }
   }
 
-  // Must have offer/demand signal AND a category to be valid
+  const isSale = SALE_PATTERNS.some(p => p.test(text));
+  const isRent = RENT_PATTERNS.some(p => p.test(text));
+
+  const resolvedLocation = extractLocation(text);
+  const hasListingShape = Boolean(
+    category &&
+    (
+      price ||
+      hasBedrooms ||
+      hasArea ||
+      hasRealEstateWords ||
+      resolvedLocation.neighborhood ||
+      resolvedLocation.city !== 'Dakar?'
+    )
+  );
+
+  if (!isOffer && !isDemand && hasListingShape) {
+    isOffer = true;
+  }
+
   if (!isOffer && !isDemand) return null;
   if (!category) return null;
 
-  // Transaction type: explicit patterns first, then infer from price
-  const isSale = SALE_PATTERNS.some(p => p.test(text));
-  const isRent = RENT_PATTERNS.some(p => p.test(text));
   let transactionType;
   if (isRent && !isSale) transactionType = 'rent';
   else if (isSale && !isRent) transactionType = 'sale';
-  else if (isRent && isSale) transactionType = isRent ? 'rent' : 'sale';
+  else if (isRent && isSale) transactionType = 'rent';
   else transactionType = inferTransactionFromPrice(price);
 
-  const bedrooms = extractBedrooms(text);
-  const area = extractArea(text);
   const phone = extractPhone(text) || fallbackPhone;
-  const { city, neighborhood, zone } = extractLocation(text);
+  const { city, neighborhood, zone } = resolvedLocation;
 
   const bedroomLabel = bedrooms ? ` F${bedrooms}` : '';
   const locationLabel = neighborhood ? ` - ${neighborhood}` : city ? ` - ${city}` : '';
   const title = `${CATEGORY_LABELS[category] || category}${bedroomLabel}${locationLabel}`;
 
-  // Determine type
   let type;
   if (isOffer && !isDemand) type = 'offer';
   else if (isDemand && !isOffer) type = 'demand';
   else {
-    const offerIdx = Math.min(...OFFER_PATTERNS.map(p => { const m = text.search(p); return m >= 0 ? m : Infinity; }));
-    const demandIdx = Math.min(...DEMAND_PATTERNS.map(p => { const m = text.search(p); return m >= 0 ? m : Infinity; }));
+    const offerIdx = Math.min(...OFFER_PATTERNS.map(p => {
+      const m = text.search(p);
+      return m >= 0 ? m : Infinity;
+    }));
+    const demandIdx = Math.min(...DEMAND_PATTERNS.map(p => {
+      const m = text.search(p);
+      return m >= 0 ? m : Infinity;
+    }));
     type = offerIdx <= demandIdx ? 'offer' : 'demand';
   }
 
@@ -404,48 +481,49 @@ function extractSingle(text, fallbackPhone) {
   };
 }
 
+// test
+
 // ─── Segment splitter ────────────────────────────────────────────────────────
-// Splits a multi-listing post into individual segments
 function splitIntoSegments(text) {
-  // Split on numbered items: "1.", "2)", "1-", etc.
-  const numberedSplit = text.split(/(?:^|\n)\s*(?:\d+[.)\-]|[•●▪\-]\s)/m).filter(s => s.trim().length > 15);
+  const numberedSplit = text
+    .split(/(?:^|\n)\s*(?:\d+[.)\-]|[•●▪\-]\s)/m)
+    .filter(s => s.trim().length > 15);
+
   if (numberedSplit.length > 1) return numberedSplit.map(s => s.trim());
 
-  // Split on double newlines
   const doubleLF = text.split(/\n\s*\n/).filter(s => s.trim().length > 15);
   if (doubleLF.length > 1) return doubleLF.map(s => s.trim());
 
-  // No split — return whole text
   return [text.trim()];
 }
 
-// ─── Main extraction function (returns array) ────────────────────────────────
+// ─── Main extraction function ────────────────────────────────────────────────
 function extractRealEstateInfo(text) {
   if (!text || text.length < 10) return { isRealEstatePost: false };
 
-  // First try the whole text as a single product
   const wholeSingle = extractSingle(text, null);
-
-  // Try splitting into segments
   const segments = splitIntoSegments(text);
 
   if (segments.length > 1) {
-    // Extract a shared phone from the full text as fallback
     const sharedPhone = extractPhone(text);
     const results = [];
-    for (const seg of segments) {
-      const result = extractSingle(seg, sharedPhone);
+
+    for (const segment of segments) {
+      const result = extractSingle(segment, sharedPhone);
       if (result) results.push(result);
     }
+
     if (results.length > 1) {
-      // Multi-product post
       return { isRealEstatePost: true, multiple: true, products: results };
     }
   }
 
-  // Single product or no products
   if (wholeSingle) return wholeSingle;
   return { isRealEstatePost: false };
 }
 
-module.exports = { extractRealEstateInfo, SENEGAL_CITIES, DAKAR_NEIGHBORHOODS };
+module.exports = {
+  extractRealEstateInfo,
+  SENEGAL_CITIES,
+  DAKAR_NEIGHBORHOODS,
+};
