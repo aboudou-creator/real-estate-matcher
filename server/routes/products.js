@@ -69,4 +69,29 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// GET /api/products/download — download last 100 posts as JSON file
+router.get('/download', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM products
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+    
+    const data = {
+      exported_at: new Date().toISOString(),
+      count: result.rows.length,
+      posts: result.rows
+    };
+    
+    const filename = `posts_export_${new Date().toISOString().split('T')[0]}.json`;
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
