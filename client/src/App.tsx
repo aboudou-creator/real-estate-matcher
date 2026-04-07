@@ -872,32 +872,64 @@ function App() {
     </>
   );
 
+  const [expandedDemandCards, setExpandedDemandCards] = useState<Set<number>>(new Set());
+  const [expandedOfferCards, setExpandedOfferCards] = useState<Set<number>>(new Set());
+
+  const toggleDemandCard = (id: number) => {
+    setExpandedDemandCards(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleOfferCard = (id: number) => {
+    setExpandedOfferCards(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
   const renderDemandsView = () => (
     <>
       {demandMatches.length === 0
         ? renderEmpty('demand matches')
-        : demandMatches.map((item) => (
-          <div key={item.demand._id} className="match-card high-score" style={{ marginBottom: 16 }}>
-            <div className="match-header">
-              <ScoreRing score={item.best_score} />
-              <div className="match-info">
-                <div className="match-label">Demande</div>
-                <div className="match-type-label">{item.offer_count} offre{item.offer_count > 1 ? 's' : ''} correspondante{item.offer_count > 1 ? 's' : ''}</div>
-              </div>
-            </div>
-            <div style={{ padding: '0 16px 8px' }}>
-              {renderMatchProduct(item.demand)}
-            </div>
-            <div style={{ padding: '0 16px 12px' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Offres correspondantes :</div>
-              {item.offers.map((o) => (
-                <div key={o.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #22c55e', paddingLeft: 12 }}>
-                  {renderMatchProduct(o.offer, o.score)}
+        : demandMatches.map((item) => {
+          const isExpanded = expandedDemandCards.has(item.demand._id);
+          return (
+            <div
+              key={item.demand._id}
+              className="match-card high-score"
+              style={{ marginBottom: 16, cursor: 'pointer' }}
+              onClick={() => toggleDemandCard(item.demand._id)}
+            >
+              <div className="match-header">
+                <ScoreRing score={item.best_score} />
+                <div className="match-info">
+                  <div className="match-label">Demande</div>
+                  <div className="match-type-label">{item.offer_count} offre{item.offer_count > 1 ? 's' : ''} correspondante{item.offer_count > 1 ? 's' : ''}</div>
                 </div>
-              ))}
+                <div className="expand-indicator" style={{ marginLeft: 'auto', fontSize: 20, color: '#64748b' }}>
+                  {isExpanded ? '▼' : '▶'}
+                </div>
+              </div>
+              <div style={{ padding: '0 16px 8px' }} onClick={(e) => e.stopPropagation()}>
+                {renderMatchProduct(item.demand)}
+              </div>
+              {isExpanded && (
+                <div style={{ padding: '0 16px 12px' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Offres correspondantes :</div>
+                  {item.offers.map((o) => (
+                    <div key={o.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #22c55e', paddingLeft: 12 }}>
+                      {renderMatchProduct(o.offer, o.score)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
     </>
   );
 
@@ -905,28 +937,41 @@ function App() {
     <>
       {offerMatches.length === 0
         ? renderEmpty('offer matches')
-        : offerMatches.map((item) => (
-          <div key={item.offer._id} className="match-card high-score" style={{ marginBottom: 16 }}>
-            <div className="match-header">
-              <ScoreRing score={item.best_score} />
-              <div className="match-info">
-                <div className="match-label">Offre</div>
-                <div className="match-type-label">{item.demand_count} demande{item.demand_count > 1 ? 's' : ''} correspondante{item.demand_count > 1 ? 's' : ''}</div>
-              </div>
-            </div>
-            <div style={{ padding: '0 16px 8px' }}>
-              {renderMatchProduct(item.offer)}
-            </div>
-            <div style={{ padding: '0 16px 12px' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Demandes correspondantes :</div>
-              {item.demands.map((d) => (
-                <div key={d.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #f59e0b', paddingLeft: 12 }}>
-                  {renderMatchProduct(d.demand, d.score)}
+        : offerMatches.map((item) => {
+          const isExpanded = expandedOfferCards.has(item.offer._id);
+          return (
+            <div
+              key={item.offer._id}
+              className="match-card high-score"
+              style={{ marginBottom: 16, cursor: 'pointer' }}
+              onClick={() => toggleOfferCard(item.offer._id)}
+            >
+              <div className="match-header">
+                <ScoreRing score={item.best_score} />
+                <div className="match-info">
+                  <div className="match-label">Offre</div>
+                  <div className="match-type-label">{item.demand_count} demande{item.demand_count > 1 ? 's' : ''} correspondante{item.demand_count > 1 ? 's' : ''}</div>
                 </div>
-              ))}
+                <div className="expand-indicator" style={{ marginLeft: 'auto', fontSize: 20, color: '#64748b' }}>
+                  {isExpanded ? '▼' : '▶'}
+                </div>
+              </div>
+              <div style={{ padding: '0 16px 8px' }} onClick={(e) => e.stopPropagation()}>
+                {renderMatchProduct(item.offer)}
+              </div>
+              {isExpanded && (
+                <div style={{ padding: '0 16px 12px' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Demandes correspondantes :</div>
+                  {item.demands.map((d) => (
+                    <div key={d.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #f59e0b', paddingLeft: 12 }}>
+                      {renderMatchProduct(d.demand, d.score)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
     </>
   );
 
