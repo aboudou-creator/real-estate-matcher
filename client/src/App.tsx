@@ -934,7 +934,7 @@ function App() {
                 </div>
               </div>
               <div style={{ padding: '0 16px 8px' }} onClick={(e) => e.stopPropagation()}>
-                {renderMatchProduct(item.demand)}
+                {renderMatchProduct(item.demand, undefined, true)}
               </div>
               {isExpanded && (
                 <div style={{ padding: '0 16px 12px' }} onClick={(e) => e.stopPropagation()}>
@@ -976,7 +976,7 @@ function App() {
                 </div>
               </div>
               <div style={{ padding: '0 16px 8px' }} onClick={(e) => e.stopPropagation()}>
-                {renderMatchProduct(item.offer)}
+                {renderMatchProduct(item.offer, undefined, true)}
               </div>
               {isExpanded && (
                 <div style={{ padding: '0 16px 12px' }} onClick={(e) => e.stopPropagation()}>
