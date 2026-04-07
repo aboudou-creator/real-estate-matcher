@@ -158,6 +158,7 @@ async function extractAndProcess(opts) {
         whatsapp_message_id: msgId,
         group_id: groupId,
         group_name: groupName,
+        preferred_locations: item.preferred_locations || null,
         confidence: seg.confidence,
         reason_codes: seg.reasons.join(','),
         raw_message_id: rawMessageId,

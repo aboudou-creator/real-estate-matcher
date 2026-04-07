@@ -31,8 +31,38 @@ function calculateMatchScore(rp1, rp2) {
     factors += 0.30;
   }
 
-  // Location matching
-  if (rp1.city && rp2.city) {
+  // Location matching — supports multi-location OR for demands
+  // A demand may have preferred_locations: [{city, neighborhood, zone}, ...]
+  // An offer matches if it fits ANY of the demand's preferred locations
+  const demandRP = rp1.type === 'demand' ? rp1 : rp2.type === 'demand' ? rp2 : null;
+  const offerRP = rp1.type === 'offer' ? rp1 : rp2.type === 'offer' ? rp2 : null;
+
+  let prefLocs = null;
+  if (demandRP && demandRP.preferred_locations) {
+    try {
+      prefLocs = typeof demandRP.preferred_locations === 'string'
+        ? JSON.parse(demandRP.preferred_locations)
+        : demandRP.preferred_locations;
+    } catch (_) {}
+  }
+
+  if (prefLocs && prefLocs.length > 0 && offerRP) {
+    // OR-matching: best location score among all preferred locations
+    let bestLocScore = 0;
+    for (const loc of prefLocs) {
+      let locScore = 0;
+      if (loc.city && offerRP.city && loc.city.toLowerCase() === offerRP.city.toLowerCase()) {
+        locScore = 0.15;
+        if (loc.neighborhood && offerRP.neighborhood &&
+            loc.neighborhood.toLowerCase() === offerRP.neighborhood.toLowerCase()) {
+          locScore = 0.20;
+        }
+      }
+      if (locScore > bestLocScore) bestLocScore = locScore;
+    }
+    score += bestLocScore;
+    factors += 0.20;
+  } else if (rp1.city && rp2.city) {
     if (rp1.city === rp2.city) {
       score += 0.15;
       // Bonus for same neighborhood

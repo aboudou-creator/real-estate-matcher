@@ -46,7 +46,7 @@ const LOCATION_ALIASES = [
   { pattern: /\bsacr[ée]\s*[- ]?c(?:oe|œ)ur\s*([123])\b/i, aliasBuilder: m => ({ neighborhood: `Sacré-Cœur ${m[1]}`, city: 'Dakar' }) },
 ];
 
-const CATEGORY_ORDER = ['colocation', 'agricultural_ground', 'house', 'apartment', 'room', 'ground'];
+const CATEGORY_ORDER = ['colocation', 'commercial', 'agricultural_ground', 'house', 'apartment', 'room', 'ground'];
 
 const ROOM_FALSE_POSITIVE_PATTERNS = [
   /\bchambre\s+salon\b/i,
@@ -198,6 +198,14 @@ const CATEGORY_PATTERNS = {
     /\broommate\b/i, /\bje\s+cherche\s+un\s+coloc\b/i,
     /\bpropose\s+coloc\b/i, /\boffre\s+coloc\b/i,
   ],
+  commercial: [
+    /\bmagasin\b/i, /\bboutique\b/i,
+    /\blocal\s+commercial\b/i, /\blocaux\s+commerci/i,
+    /\bbureau[x]?\b/i, /\bespace\s+(?:commercial|bureau)/i,
+    /\bshow\s*room\b/i, /\bsalle\s+d['']?exposition\b/i,
+    /\bentrepôt\b/i, /\bentrepot\b/i, /\bhangar\b/i,
+    /\bdépôt\b/i, /\bdepot\b/i,
+  ],
 };
 
 const SALE_PATTERNS = [
@@ -335,6 +343,63 @@ function extractLocation(text) {
   return { city, neighborhood, zone };
 }
 
+// ─── Multi-location extraction (for demands) ────────────────────────────────
+function extractAllLocations(text) {
+  const normalized = normalizeText(text);
+  const locations = [];
+  const seenNeighborhoods = new Set();
+
+  // Check aliases first
+  for (const alias of LOCATION_ALIASES) {
+    const match = normalized.match(alias.pattern);
+    if (match) {
+      const resolved = alias.aliasBuilder ? alias.aliasBuilder(match) : alias;
+      if (resolved.neighborhood && !seenNeighborhoods.has(resolved.neighborhood.toLowerCase())) {
+        seenNeighborhoods.add(resolved.neighborhood.toLowerCase());
+        locations.push({
+          city: resolved.city || 'Dakar',
+          neighborhood: resolved.neighborhood,
+          zone: inferZone(resolved.neighborhood, resolved.city || 'Dakar'),
+        });
+      }
+    }
+  }
+
+  // Check all known neighborhoods
+  for (const n of getSortedNeighborhoods()) {
+    const normalizedN = normalizeText(n);
+    if (seenNeighborhoods.has(n.toLowerCase())) continue;
+    if (new RegExp(`\\b${escapeRegex(normalizedN)}\\b`, 'i').test(normalized)) {
+      seenNeighborhoods.add(n.toLowerCase());
+      const city = /thi[eè]s/i.test(n) ? 'Thiès' : 'Dakar';
+      locations.push({
+        city,
+        neighborhood: n,
+        zone: inferZone(n, city),
+      });
+    }
+  }
+
+  // Check cities (only add if no neighborhood already placed them)
+  const seenCities = new Set(locations.map(l => l.city.toLowerCase()));
+  for (const c of SENEGAL_CITIES) {
+    const normalizedC = normalizeText(c);
+    if (seenCities.has(c.toLowerCase())) continue;
+    if (new RegExp(`\\b${escapeRegex(normalizedC)}\\b`, 'i').test(normalized)) {
+      seenCities.add(c.toLowerCase());
+      locations.push({ city: c, neighborhood: null, zone: null });
+    }
+  }
+
+  // Fallback: try generic pattern "à [Location]"
+  if (locations.length === 0) {
+    const m = text.match(/(?:à|a|situé\s+à|situe\s+a|dans)\s+([A-ZÀ-Ü][a-zà-ü]+(?:\s+[A-ZÀ-Ü][a-zà-ü]+)?)/);
+    if (m) locations.push({ city: 'Dakar?', neighborhood: m[1].trim(), zone: null });
+  }
+
+  return locations;
+}
+
 // ─── Real estate general keywords (for posts without explicit category) ──────
 const REAL_ESTATE_KEYWORDS = [
   /\bimmobili[eè]re?\b/i, /\blogement\b/i, /\bhabitat\b/i,
@@ -389,6 +454,7 @@ const CATEGORY_LABELS = {
   ground: 'Terrain',
   agricultural_ground: 'Terrain agricole',
   colocation: 'Colocation',
+  commercial: 'Local commercial',
 };
 
 // ─── Single-segment extraction ───────────────────────────────────────────────
@@ -464,6 +530,17 @@ function extractSingle(text, fallbackPhone) {
     type = offerIdx <= demandIdx ? 'offer' : 'demand';
   }
 
+  // For demands, extract all mentioned locations for OR-matching
+  let preferred_locations = null;
+  if (type === 'demand') {
+    const allLocs = extractAllLocations(text);
+    if (allLocs.length > 1) {
+      preferred_locations = allLocs;
+    } else if (allLocs.length === 1) {
+      preferred_locations = allLocs;
+    }
+  }
+
   return {
     isRealEstatePost: true,
     type,
@@ -476,6 +553,7 @@ function extractSingle(text, fallbackPhone) {
     city,
     neighborhood,
     zone,
+    preferred_locations,
     title,
     description: text.substring(0, 500),
   };

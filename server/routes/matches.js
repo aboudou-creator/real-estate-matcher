@@ -3,51 +3,130 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../db/postgres');
 
-// GET /api/matches — matches between real products
+// Helper: build a real_product JSON object for match queries
+const rpJson = (alias, pAlias) => `
+  json_build_object(
+    '_id', ${alias}.id, 'price', ${alias}.price,
+    'location', COALESCE(${alias}.neighborhood || ', ', '') || ${alias}.city,
+    'category', ${alias}.category, 'type', ${alias}.type,
+    'title', ${alias}.title, 'city', ${alias}.city,
+    'neighborhood', ${alias}.neighborhood,
+    'bedrooms', ${alias}.bedrooms, 'area', ${alias}.area,
+    'transaction_type', ${alias}.transaction_type,
+    'post_count', ${alias}.post_count,
+    'preferred_locations', ${alias}.preferred_locations,
+    'phone',       (SELECT ${pAlias}.phone       FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id AND ${pAlias}.phone IS NOT NULL LIMIT 1),
+    'description', (SELECT ${pAlias}.description FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id LIMIT 1),
+    'sender',      (SELECT ${pAlias}.sender      FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id LIMIT 1),
+    'group_name',  (SELECT ${pAlias}.group_name  FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id LIMIT 1),
+    'created_at',  ${alias}.created_at,
+    'zone',        ${alias}.zone
+  )`;
+
+// GET /api/matches — all match pairs (existing behavior)
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT
         m.id as _id, m.score, m.match_type, m.created_at as "createdAt",
-        json_build_object(
-          '_id', rp1.id, 'price', rp1.price,
-          'location', COALESCE(rp1.neighborhood || ', ', '') || rp1.city,
-          'category', rp1.category, 'type', rp1.type,
-          'title', rp1.title, 'city', rp1.city,
-          'neighborhood', rp1.neighborhood,
-          'bedrooms', rp1.bedrooms, 'area', rp1.area,
-          'transaction_type', rp1.transaction_type,
-          'post_count', rp1.post_count,
-          'phone',       (SELECT p1.phone       FROM products p1 WHERE p1.real_product_id = rp1.id AND p1.phone       IS NOT NULL LIMIT 1),
-          'description', (SELECT p1.description FROM products p1 WHERE p1.real_product_id = rp1.id LIMIT 1),
-          'sender',      (SELECT p1.sender      FROM products p1 WHERE p1.real_product_id = rp1.id LIMIT 1),
-          'group_name',  (SELECT p1.group_name  FROM products p1 WHERE p1.real_product_id = rp1.id LIMIT 1),
-          'created_at',  rp1.created_at,
-          'zone',        rp1.zone
-        ) as post1,
-        json_build_object(
-          '_id', rp2.id, 'price', rp2.price,
-          'location', COALESCE(rp2.neighborhood || ', ', '') || rp2.city,
-          'category', rp2.category, 'type', rp2.type,
-          'title', rp2.title, 'city', rp2.city,
-          'neighborhood', rp2.neighborhood,
-          'bedrooms', rp2.bedrooms, 'area', rp2.area,
-          'transaction_type', rp2.transaction_type,
-          'post_count', rp2.post_count,
-          'phone',       (SELECT p2.phone       FROM products p2 WHERE p2.real_product_id = rp2.id AND p2.phone       IS NOT NULL LIMIT 1),
-          'description', (SELECT p2.description FROM products p2 WHERE p2.real_product_id = rp2.id LIMIT 1),
-          'sender',      (SELECT p2.sender      FROM products p2 WHERE p2.real_product_id = rp2.id LIMIT 1),
-          'group_name',  (SELECT p2.group_name  FROM products p2 WHERE p2.real_product_id = rp2.id LIMIT 1),
-          'created_at',  rp2.created_at,
-          'zone',        rp2.zone
-        ) as post2
+        ${rpJson('rp1', 'p1')} as post1,
+        ${rpJson('rp2', 'p2')} as post2
       FROM matches m
       JOIN real_products rp1 ON m.product1_id = rp1.id
       JOIN real_products rp2 ON m.product2_id = rp2.id
       ORDER BY m.score DESC
-      LIMIT 200
+      LIMIT 500
     `);
     res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/matches/by-demands — each demand with its matching offers (>= minScore, default 0.75)
+router.get('/by-demands', async (req, res) => {
+  try {
+    const minScore = parseFloat(req.query.min_score) || 0.75;
+    const result = await pool.query(`
+      SELECT
+        m.id as match_id, m.score,
+        ${rpJson('rd', 'pd')} as demand,
+        ${rpJson('ro', 'po')} as offer
+      FROM matches m
+      JOIN real_products rd ON (
+        (m.product1_id = rd.id AND rd.type = 'demand') OR
+        (m.product2_id = rd.id AND rd.type = 'demand')
+      )
+      JOIN real_products ro ON (
+        (m.product1_id = ro.id AND ro.type = 'offer') OR
+        (m.product2_id = ro.id AND ro.type = 'offer')
+      )
+      WHERE m.score >= $1
+      ORDER BY m.score DESC
+    `, [minScore]);
+
+    // Group by demand _id
+    const grouped = {};
+    for (const row of result.rows) {
+      const dId = row.demand._id;
+      if (!grouped[dId]) {
+        grouped[dId] = { demand: row.demand, offers: [] };
+      }
+      grouped[dId].offers.push({ match_id: row.match_id, score: row.score, offer: row.offer });
+    }
+    // Sort offers within each demand by score desc
+    const items = Object.values(grouped).map(g => {
+      g.offers.sort((a, b) => b.score - a.score);
+      g.offer_count = g.offers.length;
+      g.best_score = g.offers[0]?.score || 0;
+      return g;
+    });
+    items.sort((a, b) => b.best_score - a.best_score);
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/matches/by-offers — each offer with its matching demands (>= minScore, default 0.75)
+router.get('/by-offers', async (req, res) => {
+  try {
+    const minScore = parseFloat(req.query.min_score) || 0.75;
+    const result = await pool.query(`
+      SELECT
+        m.id as match_id, m.score,
+        ${rpJson('ro', 'po')} as offer,
+        ${rpJson('rd', 'pd')} as demand
+      FROM matches m
+      JOIN real_products ro ON (
+        (m.product1_id = ro.id AND ro.type = 'offer') OR
+        (m.product2_id = ro.id AND ro.type = 'offer')
+      )
+      JOIN real_products rd ON (
+        (m.product1_id = rd.id AND rd.type = 'demand') OR
+        (m.product2_id = rd.id AND rd.type = 'demand')
+      )
+      WHERE m.score >= $1
+      ORDER BY m.score DESC
+    `, [minScore]);
+
+    // Group by offer _id
+    const grouped = {};
+    for (const row of result.rows) {
+      const oId = row.offer._id;
+      if (!grouped[oId]) {
+        grouped[oId] = { offer: row.offer, demands: [] };
+      }
+      grouped[oId].demands.push({ match_id: row.match_id, score: row.score, demand: row.demand });
+    }
+    const items = Object.values(grouped).map(g => {
+      g.demands.sort((a, b) => b.score - a.score);
+      g.demand_count = g.demands.length;
+      g.best_score = g.demands[0]?.score || 0;
+      return g;
+    });
+    items.sort((a, b) => b.best_score - a.best_score);
+    res.json(items);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

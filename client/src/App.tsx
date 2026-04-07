@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import {
   Building2, Users, TrendingUp, Home, MapPin, Phone, X, DoorOpen,
   DollarSign, BedDouble, Square, Layers, Map as MapIcon, Bath,
-  LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText, MessageSquare
+  LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText, MessageSquare, Store
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -65,6 +65,7 @@ interface MatchProduct {
   group_name: string | null;
   created_at: string | null;
   zone: string | null;
+  preferred_locations: Array<{city: string; neighborhood: string | null; zone: string | null}> | null;
 }
 
 interface Match {
@@ -75,6 +76,34 @@ interface Match {
   match_type: string;
   createdAt: string;
 }
+
+interface MatchedOffer {
+  match_id: number;
+  score: number;
+  offer: MatchProduct;
+}
+
+interface DemandWithOffers {
+  demand: MatchProduct;
+  offers: MatchedOffer[];
+  offer_count: number;
+  best_score: number;
+}
+
+interface MatchedDemand {
+  match_id: number;
+  score: number;
+  demand: MatchProduct;
+}
+
+interface OfferWithDemands {
+  offer: MatchProduct;
+  demands: MatchedDemand[];
+  demand_count: number;
+  best_score: number;
+}
+
+type MatchViewMode = 'all' | 'demands' | 'offers';
 
 interface AggregatedPost {
   originalPost: Post;
@@ -159,7 +188,7 @@ interface RealProduct {
 
 type TabType = 'products' | 'posts' | 'matches' | 'aggregated';
 type FilterType = 'all' | 'offers' | 'demands';
-type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground' | 'colocation';
+type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground' | 'colocation' | 'commercial';
 type TransactionFilter = 'all' | 'sale' | 'rent';
 type MatchTierFilter = 'all' | 'high' | 'mid' | 'low';
 type MatchCriteria = 'city' | 'category' | 'transaction' | 'bedrooms' | 'neighborhood';
@@ -174,6 +203,7 @@ const getCategoryIcon = (category: string) => {
     case 'ground':              return <Square size={size} />;
     case 'agricultural_ground': return <TrendingUp size={size} />;
     case 'colocation':          return <Users size={size} />;
+    case 'commercial':          return <Store size={size} />;
     default:                    return <Building2 size={size} />;
   }
 };
@@ -256,26 +286,35 @@ function App() {
   const [flushConfirm, setFlushConfirm] = useState(false);
   const [flushStatus, setFlushStatus] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [matchViewMode, setMatchViewMode] = useState<MatchViewMode>('all');
+  const [demandMatches, setDemandMatches] = useState<DemandWithOffers[]>([]);
+  const [offerMatches, setOfferMatches] = useState<OfferWithDemands[]>([]);
 
   const fetchInitialData = useCallback(async () => {
     try {
       setLoading(true);
-      const [productsRes, heatmapRes, matchesRes, realProductsRes] = await Promise.all([
+      const [productsRes, heatmapRes, matchesRes, realProductsRes, demandMatchesRes, offerMatchesRes] = await Promise.all([
         fetch(`${API_URL}/api/products?limit=500`).catch(() => null),
         fetch(`${API_URL}/api/products/heatmap`).catch(() => null),
         fetch(`${API_URL}/api/matches`).catch(() => null),
         fetch(`${API_URL}/api/real-products`).catch(() => null),
+        fetch(`${API_URL}/api/matches/by-demands`).catch(() => null),
+        fetch(`${API_URL}/api/matches/by-offers`).catch(() => null),
       ]);
 
       const productsData = productsRes ? await productsRes.json().catch(() => []) : [];
       const heatmapData = heatmapRes ? await heatmapRes.json().catch(() => []) : [];
       const matchesData = matchesRes ? await matchesRes.json().catch(() => []) : [];
       const realProductsData = realProductsRes ? await realProductsRes.json().catch(() => []) : [];
+      const demandMatchesData = demandMatchesRes ? await demandMatchesRes.json().catch(() => []) : [];
+      const offerMatchesData = offerMatchesRes ? await offerMatchesRes.json().catch(() => []) : [];
 
       if (Array.isArray(productsData)) setProducts(productsData);
       if (Array.isArray(heatmapData)) setHeatmapPoints(heatmapData);
       if (Array.isArray(matchesData)) setMatches(matchesData);
       if (Array.isArray(realProductsData)) setRealProducts(realProductsData);
+      if (Array.isArray(demandMatchesData)) setDemandMatches(demandMatchesData);
+      if (Array.isArray(offerMatchesData)) setOfferMatches(offerMatchesData);
     } catch (error) {
       console.error('Error fetching initial data:', error);
     } finally {
@@ -776,60 +815,35 @@ function App() {
     low: matches.filter(m => m.score < 0.5).length,
   };
 
-  const renderMatches = () => (
-    <>
-      <div className="card">
-        <div className="filter-row">
-          <div className="filters">
-            <button onClick={() => setMatchTierFilter('all')} className={`filter-btn ${matchTierFilter === 'all' ? 'active-all' : ''}`}>
-              All ({matchCounts.all})
-            </button>
-            <button onClick={() => setMatchTierFilter('high')} className={`filter-btn ${matchTierFilter === 'high' ? 'active-offers' : ''}`}>
-              Excellent ({matchCounts.high})
-            </button>
-            <button onClick={() => setMatchTierFilter('mid')} className={`filter-btn ${matchTierFilter === 'mid' ? 'active-all' : ''}`}>
-              Good ({matchCounts.mid})
-            </button>
-            <button onClick={() => setMatchTierFilter('low')} className={`filter-btn ${matchTierFilter === 'low' ? 'active-demands' : ''}`}>
-              Partial ({matchCounts.low})
-            </button>
-          </div>
-        </div>
-        <div className="filter-row">
-          <span className="criteria-label">Identical criteria:</span>
-          <div className="criteria-chips">
-            {(['city', 'category', 'transaction', 'bedrooms', 'neighborhood'] as MatchCriteria[]).map(c => {
-              const labels: Record<MatchCriteria, string> = {
-                city: '📍 Same City',
-                category: '🏠 Same Category',
-                transaction: '💰 Same Transaction',
-                bedrooms: '🛏 Same Bedrooms',
-                neighborhood: '🏘️ Same Neighborhood',
-              };
-              const active = matchCriteriaFilters.has(c);
-              return (
-                <button
-                  key={c}
-                  className={`criteria-chip ${active ? 'active' : ''}`}
-                  onClick={() => toggleCriteria(c)}
-                >
-                  {labels[c]}
-                </button>
-              );
-            })}
-            {matchCriteriaFilters.size > 0 && (
-              <button className="criteria-chip-clear" onClick={() => setMatchCriteriaFilters(new Set())}>
-                ✕ Clear
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="filter-results">
-          {sortedMatches.length} of {matches.length} matches
-          {matchCriteriaFilters.size > 0 && <span className="criteria-active-hint"> — {matchCriteriaFilters.size} criteria active</span>}
-        </div>
+  const renderMatchProduct = (prod: MatchProduct, showScore?: number) => (
+    <div className={`match-side ${prod.type}`}>
+      <div className="match-side-header">
+        <span className={`badge ${prod.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{prod.type}</span>
+        <span className="badge badge-category">{getCategoryIcon(prod.category)} {prod.category.replace('_', ' ')}</span>
+        <span className="badge badge-transaction">{prod.transaction_type}</span>
+        {prod.post_count > 1 && <span className="badge badge-post-count">{prod.post_count} posts</span>}
+        {showScore !== undefined && <span className="badge badge-match-count">{(showScore * 100).toFixed(0)}%</span>}
       </div>
+      <h4 className="match-product-title">{prod.title}</h4>
+      {prod.phone && (
+        <div className="match-product-phone"><Phone size={13} /> <strong>{prod.phone}</strong></div>
+      )}
+      <div className="match-product-price">{formatCFA(prod.price)}</div>
+      <div className="match-product-meta">
+        <span><MapPin size={13} /> {prod.location}</span>
+        {prod.bedrooms && <span><BedDouble size={13} /> {prod.bedrooms} bed</span>}
+        {prod.area && <span><Square size={13} /> {prod.area} m²</span>}
+      </div>
+      {prod.preferred_locations && prod.preferred_locations.length > 1 && (
+        <div className="match-product-meta" style={{ marginTop: 4, opacity: 0.8 }}>
+          <span><MapPin size={11} /> Zones: {prod.preferred_locations.map(l => l.neighborhood || l.city).join(', ')}</span>
+        </div>
+      )}
+    </div>
+  );
 
+  const renderAllMatchesView = () => (
+    <>
       {sortedMatches.length === 0
         ? renderEmpty('matches')
         : sortedMatches.map((match) => {
@@ -848,31 +862,148 @@ function App() {
               </div>
               <div className="match-body">
                 <div className="match-sides">
-                  {[match.post1, match.post2].map((prod, i) => (
-                    <div key={i} className={`match-side ${prod.type}`}>
-                      <div className="match-side-header">
-                        <span className={`badge ${prod.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{prod.type}</span>
-                        <span className="badge badge-category">{prod.category.replace('_', ' ')}</span>
-                        <span className="badge badge-transaction">{prod.transaction_type}</span>
-                        {prod.post_count > 1 && <span className="badge badge-post-count">{prod.post_count} posts</span>}
-                      </div>
-                      <h4 className="match-product-title">{prod.title}</h4>
-                      {prod.phone && (
-                        <div className="match-product-phone"><Phone size={13} /> <strong>{prod.phone}</strong></div>
-                      )}
-                      <div className="match-product-price">{formatCFA(prod.price)}</div>
-                      <div className="match-product-meta">
-                        <span><MapPin size={13} /> {prod.location}</span>
-                        {prod.bedrooms && <span><BedDouble size={13} /> {prod.bedrooms} bed</span>}
-                        {prod.area && <span><Square size={13} /> {prod.area} m²</span>}
-                      </div>
-                    </div>
-                  ))}
+                  {renderMatchProduct(match.post1)}
+                  {renderMatchProduct(match.post2)}
                 </div>
               </div>
             </div>
           );
         })}
+    </>
+  );
+
+  const renderDemandsView = () => (
+    <>
+      {demandMatches.length === 0
+        ? renderEmpty('demand matches')
+        : demandMatches.map((item) => (
+          <div key={item.demand._id} className="match-card high-score" style={{ marginBottom: 16 }}>
+            <div className="match-header">
+              <ScoreRing score={item.best_score} />
+              <div className="match-info">
+                <div className="match-label">Demande</div>
+                <div className="match-type-label">{item.offer_count} offre{item.offer_count > 1 ? 's' : ''} correspondante{item.offer_count > 1 ? 's' : ''}</div>
+              </div>
+            </div>
+            <div style={{ padding: '0 16px 8px' }}>
+              {renderMatchProduct(item.demand)}
+            </div>
+            <div style={{ padding: '0 16px 12px' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Offres correspondantes :</div>
+              {item.offers.map((o) => (
+                <div key={o.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #22c55e', paddingLeft: 12 }}>
+                  {renderMatchProduct(o.offer, o.score)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+    </>
+  );
+
+  const renderOffersView = () => (
+    <>
+      {offerMatches.length === 0
+        ? renderEmpty('offer matches')
+        : offerMatches.map((item) => (
+          <div key={item.offer._id} className="match-card high-score" style={{ marginBottom: 16 }}>
+            <div className="match-header">
+              <ScoreRing score={item.best_score} />
+              <div className="match-info">
+                <div className="match-label">Offre</div>
+                <div className="match-type-label">{item.demand_count} demande{item.demand_count > 1 ? 's' : ''} correspondante{item.demand_count > 1 ? 's' : ''}</div>
+              </div>
+            </div>
+            <div style={{ padding: '0 16px 8px' }}>
+              {renderMatchProduct(item.offer)}
+            </div>
+            <div style={{ padding: '0 16px 12px' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Demandes correspondantes :</div>
+              {item.demands.map((d) => (
+                <div key={d.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #f59e0b', paddingLeft: 12 }}>
+                  {renderMatchProduct(d.demand, d.score)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+    </>
+  );
+
+  const renderMatches = () => (
+    <>
+      <div className="card">
+        <div className="filter-row">
+          <div className="filters">
+            <button onClick={() => setMatchViewMode('all')} className={`filter-btn ${matchViewMode === 'all' ? 'active-all' : ''}`}>
+              Tous les matches ({matches.length})
+            </button>
+            <button onClick={() => setMatchViewMode('demands')} className={`filter-btn ${matchViewMode === 'demands' ? 'active-demands' : ''}`}>
+              Demandes ({demandMatches.length})
+            </button>
+            <button onClick={() => setMatchViewMode('offers')} className={`filter-btn ${matchViewMode === 'offers' ? 'active-offers' : ''}`}>
+              Offres ({offerMatches.length})
+            </button>
+          </div>
+        </div>
+        {matchViewMode === 'all' && (
+          <>
+            <div className="filter-row">
+              <div className="filters">
+                <button onClick={() => setMatchTierFilter('all')} className={`filter-btn ${matchTierFilter === 'all' ? 'active-all' : ''}`}>
+                  All ({matchCounts.all})
+                </button>
+                <button onClick={() => setMatchTierFilter('high')} className={`filter-btn ${matchTierFilter === 'high' ? 'active-offers' : ''}`}>
+                  Excellent ({matchCounts.high})
+                </button>
+                <button onClick={() => setMatchTierFilter('mid')} className={`filter-btn ${matchTierFilter === 'mid' ? 'active-all' : ''}`}>
+                  Good ({matchCounts.mid})
+                </button>
+                <button onClick={() => setMatchTierFilter('low')} className={`filter-btn ${matchTierFilter === 'low' ? 'active-demands' : ''}`}>
+                  Partial ({matchCounts.low})
+                </button>
+              </div>
+            </div>
+            <div className="filter-row">
+              <span className="criteria-label">Identical criteria:</span>
+              <div className="criteria-chips">
+                {(['city', 'category', 'transaction', 'bedrooms', 'neighborhood'] as MatchCriteria[]).map(c => {
+                  const labels: Record<MatchCriteria, string> = {
+                    city: '📍 Same City',
+                    category: '🏠 Same Category',
+                    transaction: '💰 Same Transaction',
+                    bedrooms: '🛏 Same Bedrooms',
+                    neighborhood: '🏘️ Same Neighborhood',
+                  };
+                  const active = matchCriteriaFilters.has(c);
+                  return (
+                    <button
+                      key={c}
+                      className={`criteria-chip ${active ? 'active' : ''}`}
+                      onClick={() => toggleCriteria(c)}
+                    >
+                      {labels[c]}
+                    </button>
+                  );
+                })}
+                {matchCriteriaFilters.size > 0 && (
+                  <button className="criteria-chip-clear" onClick={() => setMatchCriteriaFilters(new Set())}>
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="filter-results">
+              {sortedMatches.length} of {matches.length} matches
+              {matchCriteriaFilters.size > 0 && <span className="criteria-active-hint"> — {matchCriteriaFilters.size} criteria active</span>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {matchViewMode === 'all' && renderAllMatchesView()}
+      {matchViewMode === 'demands' && renderDemandsView()}
+      {matchViewMode === 'offers' && renderOffersView()}
     </>
   );
 

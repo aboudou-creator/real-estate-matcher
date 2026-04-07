@@ -123,14 +123,15 @@ async function processNewPost(postData) {
         `INSERT INTO real_products (
           title, type, category, transaction_type,
           price, currency, city, neighborhood, zone,
-          latitude, longitude, bedrooms, bathrooms, area, post_count
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,1)
+          latitude, longitude, bedrooms, bathrooms, area, post_count, preferred_locations
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,1,$15)
         RETURNING id`,
         [
           postData.title, postData.type, postData.category, postData.transaction_type,
           postData.price, postData.currency || 'XOF', postData.city, postData.neighborhood,
           postData.zone || null,
           postData.latitude, postData.longitude, postData.bedrooms, postData.bathrooms, postData.area,
+          postData.preferred_locations ? JSON.stringify(postData.preferred_locations) : null,
         ]
       );
       realProductId = rpResult.rows[0].id;
@@ -143,8 +144,8 @@ async function processNewPost(postData) {
         price, currency, location, city, neighborhood,
         latitude, longitude, bedrooms, bathrooms, area,
         sender, phone, whatsapp_message_id, group_id, group_name, is_duplicate,
-        confidence, reason_codes, raw_message_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+        confidence, reason_codes, raw_message_id, preferred_locations
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
       RETURNING *`,
       [
         realProductId,
@@ -159,6 +160,7 @@ async function processNewPost(postData) {
         postData.confidence || null,
         postData.reason_codes || null,
         postData.raw_message_id || null,
+        postData.preferred_locations ? JSON.stringify(postData.preferred_locations) : null,
       ]
     );
 

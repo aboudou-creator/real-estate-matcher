@@ -20,6 +20,7 @@ const POSITIVE_EVIDENCE = [
   { patterns: [/\brésidence\b/i, /\bresidence\b/i, /\bpavillon\b/i], weight: 0.22, code: 'cat_residence' },
   { patterns: [/\bcoloc(?:ation|ataire)?\b/i, /\bco[-\s]?loc(?:ation)?\b/i], weight: 0.20, code: 'cat_colocation' },
   { patterns: [/\bterrain\s+agricole\b/i, /\bterre\s+agricole\b/i, /\bchamp\b/i, /\bferme\b/i], weight: 0.22, code: 'cat_agri' },
+  { patterns: [/\bmagasin\b/i, /\bboutique\b/i, /\blocal\s+commercial\b/i, /\bbureau[x]?\b/i, /\bentrepôt\b/i, /\bentrepot\b/i, /\bhangar\b/i, /\bdépôt\b/i, /\bdepot\b/i], weight: 0.25, code: 'cat_commercial' },
 
   // Transaction terms
   { patterns: [/\bà\s*louer\b/i, /\ba\s*louer\b/i], weight: 0.20, code: 'tx_a_louer' },

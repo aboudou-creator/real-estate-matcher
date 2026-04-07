@@ -132,6 +132,9 @@ async function initDB() {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS reason_codes TEXT;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS raw_message_id INTEGER;
 
+      ALTER TABLE real_products ADD COLUMN IF NOT EXISTS preferred_locations JSONB;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS preferred_locations JSONB;
+
       CREATE TABLE IF NOT EXISTS raw_message_segments (
         id SERIAL PRIMARY KEY,
         raw_message_id INTEGER REFERENCES raw_messages(id) ON DELETE CASCADE,
