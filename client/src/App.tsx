@@ -472,6 +472,7 @@ function App() {
       ground: realProducts.filter(p => p.category === 'ground').length,
       agricultural_ground: realProducts.filter(p => p.category === 'agricultural_ground').length,
       colocation: realProducts.filter(p => p.category === 'colocation').length,
+      commercial: realProducts.filter(p => p.category === 'commercial').length,
     };
     const transactionCounts = {
       all: realProducts.length,
@@ -494,6 +495,7 @@ function App() {
             <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses ({categoryCounts.house})</button>
             <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground ({categoryCounts.ground})</button>
             <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation ({categoryCounts.colocation})</button>
+            <button onClick={() => setCategoryFilter('commercial')} className={`filter-btn ${categoryFilter === 'commercial' ? 'active-all' : ''}`}>Commercial ({categoryCounts.commercial})</button>
           </div>
         </div>
 
@@ -726,6 +728,7 @@ function App() {
             <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
             <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
             <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation</button>
+            <button onClick={() => setCategoryFilter('commercial')} className={`filter-btn ${categoryFilter === 'commercial' ? 'active-all' : ''}`}>Commercial</button>
           </div>
         </div>
         <div className="filter-results">
