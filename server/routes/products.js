@@ -6,7 +6,7 @@ const { pool } = require('../db/postgres');
 // GET /api/products — list raw posts with optional filters
 router.get('/', async (req, res) => {
   try {
-    const { category, type, city, transaction_type, limit = 500 } = req.query;
+    const { category, type, city, transaction_type, limit = 5000 } = req.query;
     let query = 'SELECT * FROM products WHERE 1=1';
     const params = [];
     let idx = 1;

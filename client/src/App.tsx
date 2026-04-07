@@ -309,7 +309,7 @@ function App() {
     try {
       setLoading(true);
       const [productsRes, heatmapRes, matchesRes, realProductsRes, demandMatchesRes, offerMatchesRes] = await Promise.all([
-        fetch(`${API_URL}/api/products?limit=500`).catch(() => null),
+        fetch(`${API_URL}/api/products`).catch(() => null),
         fetch(`${API_URL}/api/products/heatmap`).catch(() => null),
         fetch(`${API_URL}/api/matches`).catch(() => null),
         fetch(`${API_URL}/api/real-products`).catch(() => null),
