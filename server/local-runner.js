@@ -15,9 +15,7 @@ require('dotenv').config();
 
 const path = require('path');
 const { initDB } = require('./db/postgres');
-const { extractRealEstateInfo } = require('./services/extractor');
-const { processNewPost } = require('./services/dedup');
-const { findMatchesForProduct } = require('./services/matcher');
+const { ingestMessage } = require('./services/ingestion');
 
 const AUTH_DIR = path.join(__dirname, 'auth_info');
 const API_URL = process.env.API_URL || 'https://real-estate-matcher-api.fly.dev';
@@ -116,7 +114,7 @@ async function startWhatsApp() {
   });
 }
 
-// ─── Message handling pipeline ───────────────────────────────────────────────
+// ─── Message handling pipeline ───────────────────────────────────────────
 async function handleMessage(message) {
   const jid = message.key.remoteJid;
   if (!jid || !jid.endsWith('@g.us')) return;
@@ -132,54 +130,25 @@ async function handleMessage(message) {
 
   if (!text || text.length < 15) return;
 
-  const extracted = extractRealEstateInfo(text);
-  if (!extracted.isRealEstatePost) return;
-
-  console.log(`📨 Real estate post from ${message.pushName || 'Unknown'}: ${extracted.title}`);
-
-  const postData = {
-    title: extracted.title,
-    description: extracted.description,
-    type: extracted.type,
-    category: extracted.category,
-    transaction_type: extracted.transactionType,
-    price: extracted.price,
-    currency: 'XOF',
-    city: extracted.city,
-    neighborhood: extracted.neighborhood,
-    latitude: null,
-    longitude: null,
-    bedrooms: extracted.bedrooms,
-    bathrooms: null,
-    area: extracted.area,
+  // Centralized ingestion: raw capture → classify → extract → dedup/match
+  const result = await ingestMessage({
+    whatsappMessageId: message.key.id,
     sender: message.pushName || 'Unknown',
-    phone: extracted.phone,
-    whatsapp_message_id: message.key.id,
-    group_id: jid,
-  };
+    senderPhone: message.key.participant?.split('@')[0] || null,
+    groupId: jid,
+    groupName: jid,
+    text,
+    sourceMode: 'local',
+    emit: (event, data) => emit(event, data),
+    getFullRealProduct: null,
+  });
 
-  const result = await processNewPost(postData);
-  if (!result) return;
-
-  const { rawPost, realProductId, isDuplicate } = result;
-
-  let newMatches = [];
-  if (!isDuplicate) {
-    newMatches = await findMatchesForProduct(realProductId);
+  if (result && result.products && result.products.length > 0) {
+    for (const p of result.products) {
+      const label = p.isDuplicate ? `Duplicate (#${p.realProductId})` : `New #${p.realProductId}`;
+      console.log(`   → ${label}`);
+    }
   }
-
-  emit('newPost', rawPost);
-  if (isDuplicate) {
-    emit('duplicateDetected', { rawPost, realProductId });
-  }
-  for (const match of newMatches) {
-    emit('newMatch', match);
-  }
-
-  console.log(
-    `   → ${isDuplicate ? 'Duplicate (linked to product #' + realProductId + ')' : 'New product #' + realProductId}` +
-    (newMatches.length > 0 ? ` + ${newMatches.length} match(es)` : '')
-  );
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────

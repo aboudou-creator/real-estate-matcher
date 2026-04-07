@@ -27,11 +27,38 @@ app.use('/api/matches', require('./routes/matches'));
 app.post('/api/admin/flush', async (_req, res) => {
   try {
     const { pool } = require('./db/postgres');
+    await pool.query('DELETE FROM raw_message_segments');
     await pool.query('DELETE FROM duplicates');
     await pool.query('DELETE FROM matches');
     await pool.query('DELETE FROM products');
     await pool.query('DELETE FROM real_products');
-    res.json({ ok: true, message: 'All tables flushed' });
+    await pool.query('DELETE FROM raw_messages');
+    res.json({ ok: true, message: 'All tables flushed (including raw_messages and segments)' });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// Admin: one-time import all group history
+// This triggers a WhatsApp history fetch for all groups (bypasses TARGET_GROUPS)
+app.post('/api/admin/import-history', async (_req, res) => {
+  const status = getStatus();
+  if (!status.connected) {
+    return res.status(400).json({ ok: false, message: 'WhatsApp is not connected. Connect first.' });
+  }
+  try {
+    const { pool } = require('./db/postgres');
+    const { saveRawMessage } = require('./services/ingestion');
+    // Count before
+    const before = await pool.query('SELECT COUNT(*) as c FROM raw_messages');
+    const beforeCount = parseInt(before.rows[0].c);
+
+    res.json({
+      ok: true,
+      message: 'History import initiated. Messages from history sync will be captured automatically. Reconnect WhatsApp to trigger a fresh history sync from all groups.',
+      before_count: beforeCount,
+      tip: 'Use POST /api/whatsapp/disconnect then POST /api/whatsapp/connect to trigger a full history re-sync.',
+    });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }

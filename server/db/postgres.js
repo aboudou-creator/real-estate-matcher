@@ -119,9 +119,37 @@ async function initDB() {
       ALTER TABLE real_products ADD COLUMN IF NOT EXISTS zone VARCHAR(100);
       ALTER TABLE real_products ADD COLUMN IF NOT EXISTS toilets INTEGER;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS toilets INTEGER;
+
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS parser_version VARCHAR(20);
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS classification_status VARCHAR(20) DEFAULT 'pending';
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS classification_confidence DOUBLE PRECISION;
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS classification_reasons TEXT;
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS source_mode VARCHAR(30) DEFAULT 'live';
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS import_batch_id VARCHAR(100);
+      ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS segment_count INTEGER DEFAULT 0;
+
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS reason_codes TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS raw_message_id INTEGER;
+
+      CREATE TABLE IF NOT EXISTS raw_message_segments (
+        id SERIAL PRIMARY KEY,
+        raw_message_id INTEGER REFERENCES raw_messages(id) ON DELETE CASCADE,
+        segment_index INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        is_real_estate BOOLEAN DEFAULT FALSE,
+        confidence DOUBLE PRECISION,
+        reason_codes TEXT,
+        extracted_data JSONB,
+        parser_version VARCHAR(20),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_segments_raw_msg ON raw_message_segments(raw_message_id);
+      CREATE INDEX IF NOT EXISTS idx_segments_real_estate ON raw_message_segments(is_real_estate);
     `).catch(() => {});
 
-    console.log('PostgreSQL: products, matches, duplicates, raw_messages tables ready');
+    console.log('PostgreSQL: all tables ready (products, matches, duplicates, raw_messages, segments)');
   } finally {
     client.release();
   }

@@ -94,36 +94,145 @@ router.get('/download', async (req, res) => {
   }
 });
 
-// GET /api/products/download-raw — download last 100 raw WhatsApp messages
+// GET /api/products/download-raw — download raw WhatsApp messages with filters
+// Query params: limit (default 500, max 50000), group_id, group_name, is_real_estate, from, to, page, format
 router.get('/download-raw', async (req, res) => {
   try {
-    const result = await pool.query(`
+    const limit = Math.min(parseInt(req.query.limit) || 500, 50000);
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const offset = (page - 1) * limit;
+
+    let query = `
       SELECT 
-        id,
-        whatsapp_message_id,
-        sender,
-        sender_phone,
-        group_id,
-        group_name,
-        text,
-        is_real_estate,
+        id, whatsapp_message_id, sender, sender_phone,
+        group_id, group_name, text, is_real_estate,
+        classification_status, classification_confidence,
+        segment_count, source_mode, parser_version,
         created_at
-      FROM raw_messages
-      ORDER BY created_at DESC
-      LIMIT 100
-    `);
-    
+      FROM raw_messages WHERE 1=1`;
+    const params = [];
+    let idx = 1;
+
+    if (req.query.group_id) { query += ` AND group_id = $${idx++}`; params.push(req.query.group_id); }
+    if (req.query.group_name) { query += ` AND group_name ILIKE $${idx++}`; params.push(`%${req.query.group_name}%`); }
+    if (req.query.is_real_estate !== undefined) {
+      query += ` AND is_real_estate = $${idx++}`;
+      params.push(req.query.is_real_estate === 'true');
+    }
+    if (req.query.from) { query += ` AND created_at >= $${idx++}`; params.push(req.query.from); }
+    if (req.query.to) { query += ` AND created_at <= $${idx++}`; params.push(req.query.to); }
+
+    // Count total for pagination metadata
+    const countResult = await pool.query(
+      query.replace(/SELECT[\s\S]+?FROM/, 'SELECT COUNT(*) as total FROM'),
+      params
+    );
+    const total = parseInt(countResult.rows[0].total);
+
+    query += ` ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx++}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+
+    // Streaming NDJSON for large exports
+    if (req.query.format === 'ndjson') {
+      const filename = `raw_messages_export_${new Date().toISOString().split('T')[0]}.ndjson`;
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      for (const row of result.rows) {
+        res.write(JSON.stringify(row) + '\n');
+      }
+      return res.end();
+    }
+
     const data = {
       exported_at: new Date().toISOString(),
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
       count: result.rows.length,
-      messages: result.rows
+      messages: result.rows,
     };
-    
+
     const filename = `raw_messages_export_${new Date().toISOString().split('T')[0]}.json`;
-    
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/products/backfill-raw - fill raw_messages from existing products
+router.post('/backfill-raw', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      INSERT INTO raw_messages (whatsapp_message_id, sender, group_id, group_name, text, is_real_estate, source_mode, processed_at, created_at)
+      SELECT 
+        p.whatsapp_message_id,
+        p.sender,
+        p.group_id,
+        p.group_name,
+        p.description,
+        TRUE,
+        'backfill',
+        p.created_at,
+        p.created_at
+      FROM products p
+      LEFT JOIN raw_messages r ON p.whatsapp_message_id = r.whatsapp_message_id
+      WHERE r.id IS NULL AND p.whatsapp_message_id IS NOT NULL
+      ON CONFLICT (whatsapp_message_id) DO NOTHING
+    `);
+    
+    res.json({ 
+      success: true, 
+      inserted: result.rowCount,
+      message: `Backfilled ${result.rowCount} messages to raw_messages table`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/products/raw-groups — list all groups that have raw messages stored
+router.get('/raw-groups', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        group_id,
+        group_name,
+        COUNT(*) as message_count,
+        COUNT(*) FILTER (WHERE is_real_estate = true) as real_estate_count,
+        MIN(created_at) as first_message,
+        MAX(created_at) as last_message
+      FROM raw_messages
+      GROUP BY group_id, group_name
+      ORDER BY message_count DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/products/raw-stats — overview of raw message classification
+router.get('/raw-stats', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE is_real_estate = true) as real_estate,
+        COUNT(*) FILTER (WHERE is_real_estate = false) as not_real_estate,
+        COUNT(*) FILTER (WHERE classification_status = 'accepted') as accepted,
+        COUNT(*) FILTER (WHERE classification_status = 'needs_review') as needs_review,
+        COUNT(*) FILTER (WHERE classification_status = 'rejected') as rejected,
+        COUNT(*) FILTER (WHERE classification_status = 'pending' OR classification_status IS NULL) as pending,
+        AVG(classification_confidence) FILTER (WHERE classification_confidence IS NOT NULL) as avg_confidence,
+        COUNT(DISTINCT group_id) as group_count
+      FROM raw_messages
+    `);
+    res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

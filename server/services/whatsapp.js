@@ -5,10 +5,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { pool } = require('../db/postgres');
-const { extractRealEstateInfo } = require('./extractor');
-const { processNewPost } = require('./dedup');
-const { findMatchesForProduct } = require('./matcher');
+const { ingestMessage } = require('./ingestion');
 const { getFullRealProduct } = require('../routes/realProducts');
 
 // Build proxy agent from WA_PROXY_URL env var (dynamic import — these packages are ESM-only)
@@ -204,119 +201,20 @@ async function handleMessage(message) {
 
   const groupName = await resolveGroupName(jid);
 
-  // Save ALL messages to raw_messages table first
-  let rawMessageId = null;
-  try {
-    const result = await pool.query(
-      `INSERT INTO raw_messages (whatsapp_message_id, sender, sender_phone, group_id, group_name, text, is_real_estate, processed_at)
-       VALUES ($1, $2, $3, $3, $4, $5, $6, NOW())
-       ON CONFLICT (whatsapp_message_id) DO NOTHING
-       RETURNING id`,
-      [
-        message.key.id,
-        message.pushName || 'Unknown',
-        message.key.participant?.split('@')[0] || null,
-        jid,
-        groupName,
-        text,
-        false // will update to true if it's real estate
-      ]
-    );
-    rawMessageId = result.rows[0]?.id || null;
-  } catch (err) {
-    console.error('Error saving raw message:', err.message);
-  }
+  // Centralized ingestion: raw capture → classify → extract → dedup/match
+  const result = await ingestMessage({
+    whatsappMessageId: message.key.id,
+    sender: message.pushName || 'Unknown',
+    senderPhone: message.key.participant?.split('@')[0] || null,
+    groupId: jid,
+    groupName,
+    text,
+    sourceMode: 'live',
+    emit: io ? (event, data) => io.emit(event, data) : null,
+    getFullRealProduct,
+  });
 
-  const extracted = extractRealEstateInfo(text);
-  if (!extracted.isRealEstatePost) return;
-
-  // Update raw message as real estate
-  if (rawMessageId) {
-    try {
-      await pool.query(
-        'UPDATE raw_messages SET is_real_estate = TRUE WHERE id = $1',
-        [rawMessageId]
-      );
-    } catch (err) {
-      // ignore update errors
-    }
-  }
-
-  // Normalize to array: single product or multiple products
-  const products = extracted.multiple ? extracted.products : [extracted];
-
-  console.log(`📨 ${products.length} product(s) detected from ${message.pushName || 'Unknown'} in ${jid}`);
-
-  for (let i = 0; i < products.length; i++) {
-    const item = products[i];
-    const postData = {
-      title: item.title,
-      description: item.description,
-      type: item.type,
-      category: item.category,
-      transaction_type: item.transactionType,
-      price: item.price,
-      currency: 'XOF',
-      city: item.city,
-      neighborhood: item.neighborhood,
-      latitude: null,
-      longitude: null,
-      bedrooms: item.bedrooms,
-      bathrooms: null,
-      area: item.area,
-      sender: message.pushName || 'Unknown',
-      phone: item.phone,
-      // Append index for multi-product posts to avoid unique constraint collision
-      whatsapp_message_id: products.length > 1 ? `${message.key.id}_${i}` : message.key.id,
-      group_id: jid,
-      group_name: groupName,
-    };
-
-    try {
-      const result = await processNewPost(postData);
-      if (!result) continue;
-
-      const { rawPost, realProductId, isDuplicate } = result;
-
-      let newMatches = [];
-      if (!isDuplicate) {
-        newMatches = await findMatchesForProduct(realProductId);
-      }
-
-      // Fetch the full real product (with linked_posts + match_count) and push to frontend
-      const fullRP = await getFullRealProduct(realProductId);
-      if (fullRP) {
-        if (isDuplicate) {
-          io.emit('realProductUpdated', fullRP);
-        } else {
-          io.emit('newRealProduct', fullRP);
-        }
-      }
-
-      io.emit('newPost', rawPost);
-      if (isDuplicate) {
-        io.emit('duplicateDetected', { rawPost, realProductId });
-      }
-      for (const match of newMatches) {
-        io.emit('newMatch', match);
-        // Re-emit updated real products for both sides of the match
-        const [rpA, rpB] = await Promise.all([
-          getFullRealProduct(match.post1?._id || match.product1_id),
-          getFullRealProduct(match.post2?._id || match.product2_id),
-        ]);
-        if (rpA) io.emit('realProductUpdated', rpA);
-        if (rpB) io.emit('realProductUpdated', rpB);
-      }
-
-      console.log(
-        `   → [${i + 1}/${products.length}] ${item.title}: ${isDuplicate ? 'Duplicate (#' + realProductId + ')' : 'New #' + realProductId}` +
-        (newMatches.length > 0 ? ` + ${newMatches.length} match(es)` : '')
-      );
-    } catch (err) {
-      console.error(`   ✗ Error processing product ${i + 1}/${products.length}: ${err.message}`);
-    }
-  }
-  return true;
+  return result && result.products && result.products.length > 0;
 }
 
 async function disconnectWhatsApp() {
