@@ -289,6 +289,21 @@ function App() {
   const [matchViewMode, setMatchViewMode] = useState<MatchViewMode>('all');
   const [demandMatches, setDemandMatches] = useState<DemandWithOffers[]>([]);
   const [offerMatches, setOfferMatches] = useState<OfferWithDemands[]>([]);
+  const [selectedMatchProduct, setSelectedMatchProduct] = useState<RealProduct | null>(null);
+
+  const openMatchProductDetail = (productId: number) => {
+    const rp = realProducts.find(r => r.id === productId);
+    if (rp) {
+      setSelectedMatchProduct(rp);
+    } else {
+      fetch(`${API_URL}/api/real-products?id=${productId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data) && data.length > 0) setSelectedMatchProduct(data[0]);
+        })
+        .catch(() => {});
+    }
+  };
 
   const fetchInitialData = useCallback(async () => {
     try {
@@ -815,8 +830,12 @@ function App() {
     low: matches.filter(m => m.score < 0.5).length,
   };
 
-  const renderMatchProduct = (prod: MatchProduct, showScore?: number) => (
-    <div className={`match-side ${prod.type}`}>
+  const renderMatchProduct = (prod: MatchProduct, showScore?: number, clickable?: boolean) => (
+    <div
+      className={`match-side ${prod.type}${clickable ? ' match-side-clickable' : ''}`}
+      style={clickable ? { cursor: 'pointer', borderRadius: 8, padding: 10, transition: 'background 0.15s' } : undefined}
+      onClick={clickable ? (e) => { e.stopPropagation(); openMatchProductDetail(prod._id); } : undefined}
+    >
       <div className="match-side-header">
         <span className={`badge ${prod.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{prod.type}</span>
         <span className="badge badge-category">{getCategoryIcon(prod.category)} {prod.category.replace('_', ' ')}</span>
@@ -922,7 +941,7 @@ function App() {
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Offres correspondantes :</div>
                   {item.offers.map((o) => (
                     <div key={o.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #22c55e', paddingLeft: 12 }}>
-                      {renderMatchProduct(o.offer, o.score)}
+                      {renderMatchProduct(o.offer, o.score, true)}
                     </div>
                   ))}
                 </div>
@@ -964,7 +983,7 @@ function App() {
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Demandes correspondantes :</div>
                   {item.demands.map((d) => (
                     <div key={d.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #f59e0b', paddingLeft: 12 }}>
-                      {renderMatchProduct(d.demand, d.score)}
+                      {renderMatchProduct(d.demand, d.score, true)}
                     </div>
                   ))}
                 </div>
@@ -1357,6 +1376,76 @@ function App() {
             </div>
           );
         })()}
+
+        {/* Match Product Detail Dialog */}
+        {selectedMatchProduct && (
+          <div className="dialog-overlay" onClick={() => setSelectedMatchProduct(null)}>
+            <div className="dialog" onClick={(e) => e.stopPropagation()}>
+              <button className="dialog-close" onClick={() => setSelectedMatchProduct(null)}><X size={20} /></button>
+              <div className="dialog-header">
+                <div className="post-badges">
+                  <span className="category-icon">{getCategoryIcon(selectedMatchProduct.category)}</span>
+                  <span className={`badge ${selectedMatchProduct.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>{selectedMatchProduct.type}</span>
+                  <span className="badge badge-category">{selectedMatchProduct.category.replace('_', ' ')}</span>
+                  <span className="badge badge-transaction">{selectedMatchProduct.transaction_type}</span>
+                </div>
+                <h2>{selectedMatchProduct.title}</h2>
+              </div>
+              <div className="dialog-body">
+                <div className="dialog-price">{formatCFA(selectedMatchProduct.price)}</div>
+                <div className="dialog-meta">
+                  <div className="meta-item"><MapPin size={16} /><span>{selectedMatchProduct.neighborhood ? `${selectedMatchProduct.neighborhood}, ` : ''}{selectedMatchProduct.city}</span></div>
+                  {selectedMatchProduct.zone && <div className="meta-item"><MapPinned size={16} /><span>{selectedMatchProduct.zone}</span></div>}
+                  {selectedMatchProduct.bedrooms && <div className="meta-item"><BedDouble size={16} /><span>{selectedMatchProduct.bedrooms} bedrooms</span></div>}
+                  {selectedMatchProduct.bathrooms && <div className="meta-item"><Bath size={16} /><span>{selectedMatchProduct.bathrooms} bathrooms</span></div>}
+                  {selectedMatchProduct.area && <div className="meta-item"><Square size={16} /><span>{selectedMatchProduct.area} m²</span></div>}
+                </div>
+
+                {(() => {
+                  const productMatches = matches.filter(m => m.post1._id === selectedMatchProduct.id || m.post2._id === selectedMatchProduct.id);
+                  return productMatches.length > 0 ? (
+                    <>
+                      <h3 className="dialog-section-title"><Users size={15} /> Matches ({productMatches.length})</h3>
+                      <div className="dialog-matches">
+                        {productMatches.map(m => {
+                          const other = m.post1._id === selectedMatchProduct.id ? m.post2 : m.post1;
+                          return (
+                            <div key={m._id} className="dialog-match-item">
+                              <div className="dialog-match-score">{(m.score * 100).toFixed(0)}%</div>
+                              <div className="dialog-match-info">
+                                <strong>{other.title}</strong>
+                                <span>{formatCFA(other.price)}</span>
+                                {other.phone && <span><Phone size={12} /> {other.phone}</span>}
+                                <span><MapPin size={12} /> {other.location}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null;
+                })()}
+
+                <h3 className="dialog-section-title"><FileText size={15} /> Linked Posts ({selectedMatchProduct.post_count})</h3>
+                <div className="dialog-linked-posts">
+                  {selectedMatchProduct.linked_posts?.map((lp, idx) => (
+                    <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
+                      <div className="linked-post-header">
+                        <span className="linked-post-sender">{lp.sender}</span>
+                        {lp.phone && <span className="linked-post-phone"><Phone size={12} /> {lp.phone}</span>}
+                        {lp.group_name && <span className="linked-post-group"><MessageSquare size={12} /> {lp.group_name}</span>}
+                        {idx === 0 ? <span className="badge badge-original">original</span> : <span className="badge badge-duplicate">copy</span>}
+                      </div>
+                      <div className="linked-post-price">{formatCFA(lp.price)}</div>
+                      <div className="linked-post-desc">{lp.description}</div>
+                      <div className="linked-post-date">{formatDate(lp.created_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Post Detail Dialog */}
         {selectedPost && (
