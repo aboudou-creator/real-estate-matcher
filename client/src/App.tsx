@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import {
   Building2, Users, TrendingUp, Home, MapPin, Phone, X, DoorOpen,
-  DollarSign, BedDouble, Square, Layers, Map as MapIcon, Bath,
+  DollarSign, BedDouble, Square, Layers, Bath,
   LayoutGrid, MapPinned, Flame, ChevronDown, ChevronUp, FileText, MessageSquare, Store
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
@@ -66,6 +66,14 @@ interface MatchProduct {
   created_at: string | null;
   zone: string | null;
   preferred_locations: Array<{city: string; neighborhood: string | null; zone: string | null}> | null;
+  // Classification debug (spec §14 backend exposes these)
+  duplicate_count_exact_raw?: number;
+  distinct_sender_count_exact_raw?: number;
+  offer_score?: number;
+  demand_score?: number;
+  type_confidence?: number;
+  conflict_flags?: string[];
+  representative_text?: string | null;
 }
 
 interface Match {
@@ -184,6 +192,30 @@ interface RealProduct {
   match_count: number;
   created_at: string;
   linked_posts: LinkedPost[];
+  // Cluster-level fields exposed by /api/listings (spec §4, §8, §14)
+  cluster_id?: number;
+  duplicate_count_exact_raw?: number;
+  distinct_sender_count_exact_raw?: number;
+  first_sender?: string | null;
+  first_sender_phone?: string | null;
+  first_posted_at?: string | null;
+  all_senders_in_order?: string[];
+  all_group_ids?: string[];
+  representative_text?: string | null;
+  // Classification debug (§6, §7)
+  offer_score?: number;
+  demand_score?: number;
+  type_confidence?: number;
+  conflict_flags?: string[];
+  type_reason_summary?: string | null;
+  // Price parser debug (§9)
+  price_kind?: string | null;
+  conditions_months?: number | null;
+  raw_price_match?: string | null;
+  price_confidence?: number;
+  price_reason?: string | null;
+  // Demand preferred locations (§1B, §11)
+  preferred_locations?: Array<{ city: string | null; neighborhood: string | null; zone: string | null }> | null;
 }
 
 type TabType = 'products' | 'posts' | 'matches' | 'aggregated';
@@ -258,6 +290,111 @@ const formatTimeAgo = (timestamp: string | null | undefined): string => {
   return `il y a ${diffYear} ans`;
 };
 
+// ─── Mappers: new backend shape → legacy frontend shape ────────────────────
+// Backend now returns `listings` (one per cluster). We map to RealProduct so
+// the existing render tree keeps working while exposing the new debug fields.
+
+function listingToRealProduct(l: any): RealProduct {
+  const locStr = l.neighborhood && l.city ? `${l.neighborhood}, ${l.city}` : (l.neighborhood || l.city || '');
+  const linkedPosts: LinkedPost[] = [];
+  if (l.representative_text) {
+    linkedPosts.push({
+      id: l.id,
+      title: l.title || '',
+      description: l.representative_text,
+      sender: l.first_sender || 'Unknown',
+      phone: l.phone || l.first_sender_phone || '',
+      price: l.price_amount || 0,
+      location: locStr,
+      city: l.city || '',
+      neighborhood: l.neighborhood || '',
+      area: l.area || 0,
+      is_duplicate: false,
+      created_at: l.first_posted_at || l.created_at,
+      group_name: Array.isArray(l.all_group_ids) ? l.all_group_ids[0] : undefined,
+    });
+  }
+  return {
+    id: l.id,
+    title: l.title || '',
+    type: l.type,
+    category: l.category,
+    transaction_type: l.transaction_type,
+    price: l.price_amount || 0,
+    currency: l.currency || 'XOF',
+    city: l.city || '',
+    neighborhood: l.neighborhood || '',
+    zone: l.zone || null,
+    latitude: 0,
+    longitude: 0,
+    bedrooms: l.bedrooms,
+    bathrooms: null,
+    toilets: null,
+    area: l.area || 0,
+    post_count: l.duplicate_count_exact_raw || 1,
+    match_count: parseInt(l.match_count || 0),
+    created_at: l.first_posted_at || l.created_at,
+    linked_posts: linkedPosts,
+    cluster_id: l.cluster_id,
+    duplicate_count_exact_raw: l.duplicate_count_exact_raw,
+    distinct_sender_count_exact_raw: l.distinct_sender_count_exact_raw,
+    first_sender: l.first_sender,
+    first_sender_phone: l.first_sender_phone,
+    first_posted_at: l.first_posted_at,
+    all_senders_in_order: l.all_senders_in_order,
+    all_group_ids: l.all_group_ids,
+    representative_text: l.representative_text,
+    offer_score: l.offer_score,
+    demand_score: l.demand_score,
+    type_confidence: l.type_confidence,
+    conflict_flags: l.conflict_flags,
+    type_reason_summary: l.type_reason_summary,
+    price_kind: l.price_kind,
+    conditions_months: l.conditions_months,
+    raw_price_match: l.raw_price_match,
+    price_confidence: l.price_confidence,
+    price_reason: l.price_reason,
+    preferred_locations: l.preferred_locations,
+  };
+}
+
+function matchRowToMatch(row: any): Match {
+  const toProd = (prefix: 'offer' | 'demand'): MatchProduct => ({
+    _id: row[`${prefix}_id`],
+    title: row[`${prefix}_title`] || '',
+    type: prefix,
+    category: row[`${prefix}_category`],
+    transaction_type: row[`${prefix}_tx`],
+    price: row[`${prefix}_price`] || 0,
+    location: row[`${prefix}_neighborhood`] && row[`${prefix}_city`]
+      ? `${row[`${prefix}_neighborhood`]}, ${row[`${prefix}_city`]}`
+      : (row[`${prefix}_neighborhood`] || row[`${prefix}_city`] || ''),
+    city: row[`${prefix}_city`] || '',
+    neighborhood: row[`${prefix}_neighborhood`] || '',
+    bedrooms: row[`${prefix}_bedrooms`],
+    area: 0,
+    post_count: row[`${prefix}_duplicate_count`] || 1,
+    phone: row[`${prefix}_phone`] || row[`${prefix}_first_phone`] || null,
+    description: row[`${prefix}_text`] || null,
+    sender: row[`${prefix}_first_sender`] || null,
+    group_name: null,
+    created_at: row[`${prefix}_first_posted_at`] || null,
+    zone: row[`${prefix}_zone`] || null,
+    preferred_locations: row.demand_preferred_locations || null,
+    duplicate_count_exact_raw: row[`${prefix}_duplicate_count`],
+    distinct_sender_count_exact_raw: row[`${prefix}_distinct_senders`],
+    representative_text: row[`${prefix}_text`] || null,
+  });
+  return {
+    _id: String(row.match_id),
+    post1: toProd('offer'),
+    post2: toProd('demand'),
+    score: (row.score || 0) / 100,            // backend: 0-100  →  frontend: 0-1
+    match_type: 'score',
+    createdAt: row.matched_at,
+  };
+}
+
 function App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [aggregatedPosts] = useState<AggregatedPost[]>([]);
@@ -267,7 +404,7 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [waStatus, setWaStatus] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('products');
+  const [activeTab, setActiveTab] = useState<TabType>('matches');
   const [filter, setFilter] = useState<FilterType>('all');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>('all');
@@ -277,6 +414,9 @@ function App() {
   const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [matchTierFilter, setMatchTierFilter] = useState<MatchTierFilter>('all');
   const [matchCriteriaFilters, setMatchCriteriaFilters] = useState<Set<MatchCriteria>>(new Set());
+  const [matchCategoryFilter, setMatchCategoryFilter] = useState<CategoryFilter>('all');
+  const [matchTransactionFilter, setMatchTransactionFilter] = useState<TransactionFilter>('all');
+  const [matchZoneFilter, setMatchZoneFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [expandedRealProduct, setExpandedRealProduct] = useState<number | null>(null);
@@ -286,7 +426,7 @@ function App() {
   const [flushConfirm, setFlushConfirm] = useState(false);
   const [flushStatus, setFlushStatus] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-  const [matchViewMode, setMatchViewMode] = useState<MatchViewMode>('all');
+  const [matchViewMode, setMatchViewMode] = useState<MatchViewMode>('demands');
   const [demandMatches, setDemandMatches] = useState<DemandWithOffers[]>([]);
   const [offerMatches, setOfferMatches] = useState<OfferWithDemands[]>([]);
   const [selectedMatchProduct, setSelectedMatchProduct] = useState<RealProduct | null>(null);
@@ -296,10 +436,10 @@ function App() {
     if (rp) {
       setSelectedMatchProduct(rp);
     } else {
-      fetch(`${API_URL}/api/real-products?id=${productId}`)
+      fetch(`${API_URL}/api/listings/${productId}`)
         .then(r => r.json())
         .then(data => {
-          if (Array.isArray(data) && data.length > 0) setSelectedMatchProduct(data[0]);
+          if (data && data.listing) setSelectedMatchProduct(listingToRealProduct(data.listing));
         })
         .catch(() => {});
     }
@@ -308,28 +448,75 @@ function App() {
   const fetchInitialData = useCallback(async () => {
     try {
       setLoading(true);
-      const [productsRes, heatmapRes, matchesRes, realProductsRes, demandMatchesRes, offerMatchesRes] = await Promise.all([
-        fetch(`${API_URL}/api/products`).catch(() => null),
-        fetch(`${API_URL}/api/products/heatmap`).catch(() => null),
-        fetch(`${API_URL}/api/matches`).catch(() => null),
-        fetch(`${API_URL}/api/real-products`).catch(() => null),
-        fetch(`${API_URL}/api/matches/by-demands`).catch(() => null),
-        fetch(`${API_URL}/api/matches/by-offers`).catch(() => null),
+      const [listingsRes, matchesRes, demandMatchesRes, offerMatchesRes] = await Promise.all([
+        fetch(`${API_URL}/api/listings`).catch(() => null),
+        fetch(`${API_URL}/api/matches?min_score=50`).catch(() => null),
+        fetch(`${API_URL}/api/matches/by-demand?min_score=50`).catch(() => null),
+        fetch(`${API_URL}/api/matches/by-offer?min_score=50`).catch(() => null),
       ]);
 
-      const productsData = productsRes ? await productsRes.json().catch(() => []) : [];
-      const heatmapData = heatmapRes ? await heatmapRes.json().catch(() => []) : [];
+      const listingsData = listingsRes ? await listingsRes.json().catch(() => []) : [];
       const matchesData = matchesRes ? await matchesRes.json().catch(() => []) : [];
-      const realProductsData = realProductsRes ? await realProductsRes.json().catch(() => []) : [];
       const demandMatchesData = demandMatchesRes ? await demandMatchesRes.json().catch(() => []) : [];
       const offerMatchesData = offerMatchesRes ? await offerMatchesRes.json().catch(() => []) : [];
 
-      if (Array.isArray(productsData)) setProducts(productsData);
-      if (Array.isArray(heatmapData)) setHeatmapPoints(heatmapData);
-      if (Array.isArray(matchesData)) setMatches(matchesData);
-      if (Array.isArray(realProductsData)) setRealProducts(realProductsData);
-      if (Array.isArray(demandMatchesData)) setDemandMatches(demandMatchesData);
-      if (Array.isArray(offerMatchesData)) setOfferMatches(offerMatchesData);
+      if (Array.isArray(listingsData)) {
+        const mapped = listingsData.map(listingToRealProduct);
+        setRealProducts(mapped);
+        // Also populate legacy `products` array from listings so the Posts tab renders.
+        // Each listing maps to a single Product row representing its representative text.
+        setProducts(mapped.map(rp => ({
+          id: rp.id,
+          title: rp.title,
+          description: rp.representative_text || '',
+          type: rp.type,
+          category: rp.category,
+          transaction_type: rp.transaction_type,
+          price: rp.price,
+          currency: rp.currency,
+          location: rp.neighborhood && rp.city ? `${rp.neighborhood}, ${rp.city}` : rp.city,
+          city: rp.city,
+          neighborhood: rp.neighborhood,
+          latitude: 0,
+          longitude: 0,
+          bedrooms: rp.bedrooms,
+          bathrooms: null,
+          area: rp.area,
+          sender: rp.first_sender || 'Unknown',
+          phone: rp.first_sender_phone || '',
+          is_duplicate: (rp.duplicate_count_exact_raw || 1) > 1,
+          created_at: rp.created_at,
+          group_name: Array.isArray(rp.all_group_ids) ? rp.all_group_ids[0] : undefined,
+        })));
+      }
+      setHeatmapPoints([]); // heatmap endpoint not implemented yet
+      if (Array.isArray(matchesData)) setMatches(matchesData.map(matchRowToMatch));
+      // Demand/offer grouped endpoints already return the right shape but the
+      // nested listings use snake_case. Map them to RealProduct too.
+      if (Array.isArray(demandMatchesData)) {
+        setDemandMatches(demandMatchesData.map((d: any) => ({
+          demand: listingToRealProduct(d.demand) as unknown as MatchProduct,
+          offers: (d.offers || []).map((o: any) => ({
+            match_id: o.match_id,
+            score: (o.score || 0) / 100,
+            offer: listingToRealProduct(o) as unknown as MatchProduct,
+          })),
+          offer_count: d.offer_count,
+          best_score: (d.best_score || 0) / 100,
+        })));
+      }
+      if (Array.isArray(offerMatchesData)) {
+        setOfferMatches(offerMatchesData.map((o: any) => ({
+          offer: listingToRealProduct(o.offer) as unknown as MatchProduct,
+          demands: (o.demands || []).map((d: any) => ({
+            match_id: d.match_id,
+            score: (d.score || 0) / 100,
+            demand: listingToRealProduct(d) as unknown as MatchProduct,
+          })),
+          demand_count: o.demand_count,
+          best_score: (o.best_score || 0) / 100,
+        })));
+      }
     } catch (error) {
       console.error('Error fetching initial data:', error);
     } finally {
@@ -337,9 +524,7 @@ function App() {
     }
   }, []);
 
-  // Buffers for high-frequency socket events — flushed to state every 750ms
-  const newPostsBuffer = useRef<Product[]>([]);
-  const newMatchesBuffer = useRef<Match[]>([]);
+  // Buffers for high-frequency socket events — flushed to state every 5s
   const newRPBuffer = useRef<RealProduct[]>([]);
   const updatedRPBuffer = useRef<RealProduct[]>([]);
 
@@ -357,30 +542,47 @@ function App() {
     socket.on('disconnected', () => { setConnected(false); setQrCode(null); });
     socket.on('wa_error', (msg: string) => setWaStatus(msg));
 
-    // Buffer high-frequency events instead of setState on every message
-    socket.on('newPost', (post: Product) => { newPostsBuffer.current.push(post); });
-    socket.on('newMatch', (match: Match) => { newMatchesBuffer.current.push(match); });
-    socket.on('newRealProduct', (rp: RealProduct) => { newRPBuffer.current.push(rp); });
-    socket.on('realProductUpdated', (rp: RealProduct) => { updatedRPBuffer.current.push(rp); });
+    // New backend socket events (spec §15):
+    //   raw_message        — every raw message captured
+    //   cluster_updated    — existing cluster gets a duplicate
+    //   listing_created    — new listing extracted (fetch + prepend)
+    //   match_created      — new match persisted (refetch matches)
+    socket.on('listing_created', (evt: { listing_id: number }) => {
+      if (!evt || !evt.listing_id) return;
+      fetch(`${API_URL}/api/listings/${evt.listing_id}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.listing) newRPBuffer.current.push(listingToRealProduct(data.listing));
+        })
+        .catch(() => {});
+    });
+    socket.on('cluster_updated', () => {
+      // A duplicate arrived — refresh listings soon to bump duplicate counts.
+      // We just set a flag by pushing a zero entry; flush will refetch.
+      updatedRPBuffer.current.push({} as RealProduct);
+    });
+    socket.on('match_created', () => {
+      fetch(`${API_URL}/api/matches?min_score=50`)
+        .then(r => r.json())
+        .then((rows: any[]) => { if (Array.isArray(rows)) setMatches(rows.map(matchRowToMatch)); })
+        .catch(() => {});
+    });
 
     // Flush buffers to state at most every 5 seconds
     const flush = setInterval(() => {
-      const posts = newPostsBuffer.current.splice(0);
-      const matchs = newMatchesBuffer.current.splice(0);
       const newRPs = newRPBuffer.current.splice(0);
       const updatedRPs = updatedRPBuffer.current.splice(0);
 
-      if (posts.length)    setProducts(prev => [...posts, ...prev]);
-      if (matchs.length)   setMatches(prev => [...matchs, ...prev]);
       if (newRPs.length || updatedRPs.length) {
-        setRealProducts(prev => {
-          let next = newRPs.length ? [...newRPs, ...prev] : [...prev];
-          if (updatedRPs.length) {
-            const updMap = new Map(updatedRPs.map(r => [r.id, r]));
-            next = next.map(p => updMap.get(p.id) ?? p);
-          }
-          return next;
-        });
+        if (updatedRPs.length > 0) {
+          // Cluster updated — easier to refetch the whole listings list.
+          fetch(`${API_URL}/api/listings`)
+            .then(r => r.json())
+            .then((arr: any[]) => { if (Array.isArray(arr)) setRealProducts(arr.map(listingToRealProduct)); })
+            .catch(() => {});
+        } else if (newRPs.length > 0) {
+          setRealProducts(prev => [...newRPs, ...prev]);
+        }
       }
     }, 5000);
 
@@ -588,9 +790,19 @@ function App() {
                     </span>
                     <span className="badge badge-category">{rp.category.replace('_', ' ')}</span>
                     <span className="badge badge-transaction">{rp.transaction_type}</span>
-                    <span className="badge badge-post-count">{rp.post_count} post{rp.post_count > 1 ? 's' : ''}</span>
+                    {(rp.duplicate_count_exact_raw || 1) > 1 ? (
+                      <span className="badge badge-post-count" title="Exact duplicates from §4">
+                        {rp.duplicate_count_exact_raw} copies
+                        {rp.distinct_sender_count_exact_raw ? ` / ${rp.distinct_sender_count_exact_raw} senders` : ''}
+                      </span>
+                    ) : (
+                      <span className="badge badge-post-count">1 post</span>
+                    )}
                     {rp.match_count > 0 && (
                       <span className="badge badge-match-count"><Users size={11} /> {rp.match_count} match{rp.match_count > 1 ? 'es' : ''}</span>
+                    )}
+                    {Array.isArray(rp.conflict_flags) && rp.conflict_flags.length > 0 && (
+                      <span className="badge badge-duplicate" title={rp.conflict_flags.join(', ')}>⚠ conflict</span>
                     )}
                   </div>
                   {primaryPhone && (
@@ -630,8 +842,8 @@ function App() {
                     {rp.linked_posts.map((lp, idx) => (
                       <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
                         <div className="linked-post-header">
+                          {lp.phone && <span className="linked-post-phone"><Phone size={12} /> <strong>{lp.phone}</strong></span>}
                           <span className="linked-post-sender">{lp.sender}</span>
-                          {lp.phone && <span className="linked-post-phone"><Phone size={12} /> {lp.phone}</span>}
                           {lp.group_name && <span className="linked-post-group"><MessageSquare size={12} /> {lp.group_name}</span>}
                           {idx === 0 ? (
                             <span className="badge badge-original">original</span>
@@ -685,7 +897,10 @@ function App() {
                         {product.bedrooms && <span>{product.bedrooms} bed</span>}
                         {product.area && <span>{product.area} m²</span>}
                       </div>
-                      <div className="popup-sender">{product.sender}</div>
+                      <div className="popup-sender">
+                        {product.phone && <><Phone size={11} /> <strong>{product.phone}</strong> · </>}
+                        {product.sender}
+                      </div>
                     </div>
                   </Popup>
                 </Marker>
@@ -773,7 +988,10 @@ function App() {
             <div className="product-description">{product.description}</div>
 
             <div className="post-footer">
-              <span className="sender">{product.sender}</span>
+              <span className="sender">
+                {product.phone && <><Phone size={12} /> <strong>{product.phone}</strong> · </>}
+                {product.sender}
+              </span>
               <span className="timestamp">{formatDate(product.created_at)}</span>
             </div>
           </div>
@@ -814,8 +1032,41 @@ function App() {
       return next;
     });
 
+  // Always render demand on the left and offer on the right in match cards.
+  const demandFirst = (m: Match): [MatchProduct, MatchProduct] =>
+    m.post1.type === 'demand' ? [m.post1, m.post2]
+    : m.post2.type === 'demand' ? [m.post2, m.post1]
+    : [m.post1, m.post2];
+
+  // Category filter semantics mirror the Products view:
+  //   'commercial' covers both 'shop' and 'office'.
+  const matchCategoryMatches = (cat: string): boolean =>
+    matchCategoryFilter === 'all'
+      ? true
+      : matchCategoryFilter === 'commercial'
+        ? cat === 'shop' || cat === 'office'
+        : cat === matchCategoryFilter;
+
+  const matchPassesSharedFilters = (a: MatchProduct, b: MatchProduct): boolean => {
+    // Category / transaction / zone must match on EITHER side (they're usually
+    // the same on both sides of a valid match, but we stay permissive).
+    if (matchCategoryFilter !== 'all'
+        && !matchCategoryMatches(a.category) && !matchCategoryMatches(b.category)) return false;
+    if (matchTransactionFilter !== 'all'
+        && a.transaction_type !== matchTransactionFilter
+        && b.transaction_type !== matchTransactionFilter) return false;
+    if (matchZoneFilter !== 'all'
+        && a.zone !== matchZoneFilter && b.zone !== matchZoneFilter) return false;
+    return true;
+  };
+
+  const availableMatchZones = Array.from(
+    new Set(matches.flatMap(m => [m.post1.zone, m.post2.zone]).filter((z): z is string => !!z))
+  ).sort();
+
   const sortedMatches = [...matches]
     .filter(m => matchTierFilter === 'all' || getScoreTier(m.score) === matchTierFilter)
+    .filter(m => matchPassesSharedFilters(m.post1, m.post2))
     .filter(m => {
       if (matchCriteriaFilters.has('city')        && m.post1.city !== m.post2.city) return false;
       if (matchCriteriaFilters.has('category')    && m.post1.category !== m.post2.category) return false;
@@ -825,6 +1076,16 @@ function App() {
       return true;
     })
     .sort((a, b) => b.score - a.score);
+
+  // Demand/Offer views — filter by shared category/transaction/zone AND tier.
+  const filteredDemandMatches = demandMatches.filter(d =>
+    matchPassesSharedFilters(d.demand, d.demand) &&
+    (matchTierFilter === 'all' || getScoreTier(d.best_score) === matchTierFilter)
+  );
+  const filteredOfferMatches = offerMatches.filter(o =>
+    matchPassesSharedFilters(o.offer, o.offer) &&
+    (matchTierFilter === 'all' || getScoreTier(o.best_score) === matchTierFilter)
+  );
 
   const matchCounts = {
     all: matches.length,
@@ -847,8 +1108,12 @@ function App() {
         {showScore !== undefined && <span className="badge badge-match-count">{(showScore * 100).toFixed(0)}%</span>}
       </div>
       <h4 className="match-product-title">{prod.title}</h4>
-      {prod.phone && (
-        <div className="match-product-phone"><Phone size={13} /> <strong>{prod.phone}</strong></div>
+      {(prod.phone || prod.sender) && (
+        <div className="match-product-phone">
+          {prod.phone && <><Phone size={13} /> <strong>{prod.phone}</strong></>}
+          {prod.phone && prod.sender && <span style={{ opacity: 0.6, margin: '0 6px' }}>·</span>}
+          {prod.sender && <span className="match-product-sender">{prod.sender}</span>}
+        </div>
       )}
       <div className="match-product-price">{formatCFA(prod.price)}</div>
       <div className="match-product-meta">
@@ -884,8 +1149,10 @@ function App() {
               </div>
               <div className="match-body">
                 <div className="match-sides">
-                  {renderMatchProduct(match.post1)}
-                  {renderMatchProduct(match.post2)}
+                  {(() => {
+                    const [left, right] = demandFirst(match);
+                    return <>{renderMatchProduct(left)}{renderMatchProduct(right)}</>;
+                  })()}
                 </div>
               </div>
             </div>
@@ -915,9 +1182,9 @@ function App() {
 
   const renderDemandsView = () => (
     <>
-      {demandMatches.length === 0
+      {filteredDemandMatches.length === 0
         ? renderEmpty('demand matches')
-        : demandMatches.map((item) => {
+        : filteredDemandMatches.map((item) => {
           const isExpanded = expandedDemandCards.has(item.demand._id);
           return (
             <div
@@ -957,9 +1224,9 @@ function App() {
 
   const renderOffersView = () => (
     <>
-      {offerMatches.length === 0
+      {filteredOfferMatches.length === 0
         ? renderEmpty('offer matches')
-        : offerMatches.map((item) => {
+        : filteredOfferMatches.map((item) => {
           const isExpanded = expandedOfferCards.has(item.offer._id);
           return (
             <div
@@ -997,50 +1264,109 @@ function App() {
     </>
   );
 
+  const hasActiveMatchFilters =
+    matchTierFilter !== 'all' ||
+    matchCategoryFilter !== 'all' ||
+    matchTransactionFilter !== 'all' ||
+    matchZoneFilter !== 'all' ||
+    matchCriteriaFilters.size > 0;
+
+  const clearAllMatchFilters = () => {
+    setMatchTierFilter('all');
+    setMatchCategoryFilter('all');
+    setMatchTransactionFilter('all');
+    setMatchZoneFilter('all');
+    setMatchCriteriaFilters(new Set());
+  };
+
   const renderMatches = () => (
     <>
       <div className="card">
+        {/* Sub-view: Demandes → Offres → Tous */}
         <div className="filter-row">
           <div className="filters">
-            <button onClick={() => setMatchViewMode('all')} className={`filter-btn ${matchViewMode === 'all' ? 'active-all' : ''}`}>
-              Tous les matches ({matches.length})
-            </button>
             <button onClick={() => setMatchViewMode('demands')} className={`filter-btn ${matchViewMode === 'demands' ? 'active-demands' : ''}`}>
               Demandes ({demandMatches.length})
             </button>
             <button onClick={() => setMatchViewMode('offers')} className={`filter-btn ${matchViewMode === 'offers' ? 'active-offers' : ''}`}>
               Offres ({offerMatches.length})
             </button>
+            <button onClick={() => setMatchViewMode('all')} className={`filter-btn ${matchViewMode === 'all' ? 'active-all' : ''}`}>
+              Tous les matches ({matches.length})
+            </button>
           </div>
         </div>
+
+        {/* Score tier — applies to every sub-view */}
+        <div className="filter-row">
+          <div className="filters">
+            <button onClick={() => setMatchTierFilter('all')} className={`filter-btn ${matchTierFilter === 'all' ? 'active-all' : ''}`}>
+              Tous scores ({matchCounts.all})
+            </button>
+            <button onClick={() => setMatchTierFilter('high')} className={`filter-btn ${matchTierFilter === 'high' ? 'active-offers' : ''}`}>
+              Excellent ({matchCounts.high})
+            </button>
+            <button onClick={() => setMatchTierFilter('mid')} className={`filter-btn ${matchTierFilter === 'mid' ? 'active-all' : ''}`}>
+              Bon ({matchCounts.mid})
+            </button>
+            <button onClick={() => setMatchTierFilter('low')} className={`filter-btn ${matchTierFilter === 'low' ? 'active-demands' : ''}`}>
+              Partiel ({matchCounts.low})
+            </button>
+          </div>
+        </div>
+
+        {/* Category / Transaction / Zone — apply to every sub-view */}
+        <div className="filter-row filter-row-compact">
+          <label className="compact-filter">
+            <span>Catégorie</span>
+            <select value={matchCategoryFilter} onChange={(e) => setMatchCategoryFilter(e.target.value as CategoryFilter)}>
+              <option value="all">Toutes</option>
+              <option value="apartment">Appartement</option>
+              <option value="room">Chambre</option>
+              <option value="house">Maison</option>
+              <option value="ground">Terrain</option>
+              <option value="agricultural_ground">Terrain agricole</option>
+              <option value="colocation">Colocation</option>
+              <option value="commercial">Commercial (boutique / bureau)</option>
+            </select>
+          </label>
+          <label className="compact-filter">
+            <span>Transaction</span>
+            <select value={matchTransactionFilter} onChange={(e) => setMatchTransactionFilter(e.target.value as TransactionFilter)}>
+              <option value="all">Toutes</option>
+              <option value="sale">Vente</option>
+              <option value="rent">Location</option>
+            </select>
+          </label>
+          <label className="compact-filter">
+            <span>Zone</span>
+            <select value={matchZoneFilter} onChange={(e) => setMatchZoneFilter(e.target.value)}>
+              <option value="all">Toutes zones</option>
+              {availableMatchZones.map(z => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </select>
+          </label>
+          {hasActiveMatchFilters && (
+            <button className="criteria-chip-clear" onClick={clearAllMatchFilters}>
+              ✕ Réinitialiser
+            </button>
+          )}
+        </div>
+
+        {/* Identical-criteria chips — only meaningful in the 'all' head-to-head view */}
         {matchViewMode === 'all' && (
           <>
             <div className="filter-row">
-              <div className="filters">
-                <button onClick={() => setMatchTierFilter('all')} className={`filter-btn ${matchTierFilter === 'all' ? 'active-all' : ''}`}>
-                  All ({matchCounts.all})
-                </button>
-                <button onClick={() => setMatchTierFilter('high')} className={`filter-btn ${matchTierFilter === 'high' ? 'active-offers' : ''}`}>
-                  Excellent ({matchCounts.high})
-                </button>
-                <button onClick={() => setMatchTierFilter('mid')} className={`filter-btn ${matchTierFilter === 'mid' ? 'active-all' : ''}`}>
-                  Good ({matchCounts.mid})
-                </button>
-                <button onClick={() => setMatchTierFilter('low')} className={`filter-btn ${matchTierFilter === 'low' ? 'active-demands' : ''}`}>
-                  Partial ({matchCounts.low})
-                </button>
-              </div>
-            </div>
-            <div className="filter-row">
-              <span className="criteria-label">Identical criteria:</span>
+              <span className="criteria-label">Critères identiques :</span>
               <div className="criteria-chips">
                 {(['city', 'category', 'transaction', 'bedrooms', 'neighborhood'] as MatchCriteria[]).map(c => {
                   const labels: Record<MatchCriteria, string> = {
-                    city: '📍 Same City',
-                    category: '🏠 Same Category',
-                    transaction: '💰 Same Transaction',
-                    bedrooms: '🛏 Same Bedrooms',
-                    neighborhood: '🏘️ Same Neighborhood',
+                    city: '📍 Même ville',
+                    category: '🏠 Même catégorie',
+                    transaction: '💰 Même transaction',
+                    bedrooms: '🛏 Mêmes chambres',
+                    neighborhood: '🏘️ Même quartier',
                   };
                   const active = matchCriteriaFilters.has(c);
                   return (
@@ -1053,19 +1379,17 @@ function App() {
                     </button>
                   );
                 })}
-                {matchCriteriaFilters.size > 0 && (
-                  <button className="criteria-chip-clear" onClick={() => setMatchCriteriaFilters(new Set())}>
-                    ✕ Clear
-                  </button>
-                )}
               </div>
-            </div>
-            <div className="filter-results">
-              {sortedMatches.length} of {matches.length} matches
-              {matchCriteriaFilters.size > 0 && <span className="criteria-active-hint"> — {matchCriteriaFilters.size} criteria active</span>}
             </div>
           </>
         )}
+
+        <div className="filter-results">
+          {matchViewMode === 'all' && <>{sortedMatches.length} / {matches.length} matches</>}
+          {matchViewMode === 'demands' && <>{filteredDemandMatches.length} / {demandMatches.length} demandes</>}
+          {matchViewMode === 'offers' && <>{filteredOfferMatches.length} / {offerMatches.length} offres</>}
+          {hasActiveMatchFilters && <span className="criteria-active-hint"> — filtres actifs</span>}
+        </div>
       </div>
 
       {matchViewMode === 'all' && renderAllMatchesView()}
@@ -1113,9 +1437,9 @@ function App() {
         ));
 
   const tabConfig: { key: TabType; label: string; count: number }[] = [
+    { key: 'matches', label: 'Matches', count: matches.length },
     { key: 'products', label: 'Products', count: realProducts.length },
     { key: 'posts', label: 'Posts', count: products.length },
-    { key: 'matches', label: 'Matches', count: matches.length },
     { key: 'aggregated', label: 'Aggregated', count: aggregatedPosts.length },
   ];
 
@@ -1298,13 +1622,66 @@ function App() {
                   ) : null;
                 })()}
 
+                {/* ─── Debug / Classification drawer (spec §14) ─── */}
+                <details className="debug-drawer" style={{ marginTop: 16, padding: '10px 12px', background: '#0f172a', color: '#e2e8f0', borderRadius: 8, fontSize: 12 }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600 }}>🔬 Debug / Classification</summary>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                    <div><strong>Cluster ID:</strong> {selectedProduct.cluster_id ?? '—'}</div>
+                    <div><strong>Type confidence:</strong> {selectedProduct.type_confidence ?? '—'}</div>
+                    <div><strong>Offer score:</strong> {selectedProduct.offer_score ?? '—'}</div>
+                    <div><strong>Demand score:</strong> {selectedProduct.demand_score ?? '—'}</div>
+                    <div><strong>Exact duplicates:</strong> {selectedProduct.duplicate_count_exact_raw ?? 1}</div>
+                    <div><strong>Distinct senders:</strong> {selectedProduct.distinct_sender_count_exact_raw ?? 1}</div>
+                    <div><strong>Price kind:</strong> {selectedProduct.price_kind ?? '—'}</div>
+                    <div><strong>Price reason:</strong> {selectedProduct.price_reason ?? '—'}</div>
+                    <div><strong>Raw price match:</strong> <code>{selectedProduct.raw_price_match ?? '—'}</code></div>
+                    <div><strong>Conditions (months):</strong> {selectedProduct.conditions_months ?? '—'}</div>
+                  </div>
+                  {Array.isArray(selectedProduct.conflict_flags) && selectedProduct.conflict_flags.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <strong>⚠ Conflict flags:</strong>{' '}
+                      {selectedProduct.conflict_flags.map((f, i) => (
+                        <span key={i} style={{ display: 'inline-block', background: '#7f1d1d', padding: '2px 6px', borderRadius: 4, marginRight: 4 }}>{f}</span>
+                      ))}
+                    </div>
+                  )}
+                  {selectedProduct.type_reason_summary && (
+                    <div style={{ marginTop: 10 }}>
+                      <strong>Type reason:</strong> <em>{selectedProduct.type_reason_summary}</em>
+                    </div>
+                  )}
+                  {Array.isArray(selectedProduct.all_senders_in_order) && selectedProduct.all_senders_in_order.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <strong>Senders in order:</strong> {selectedProduct.all_senders_in_order.join(' → ')}
+                    </div>
+                  )}
+                  {Array.isArray(selectedProduct.preferred_locations) && selectedProduct.preferred_locations.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <strong>Preferred locations (demand):</strong>
+                      <ul style={{ margin: '4px 0 0 16px' }}>
+                        {selectedProduct.preferred_locations.map((pl, i) => (
+                          <li key={i}>{[pl.neighborhood, pl.city, pl.zone].filter(Boolean).join(' · ')}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {selectedProduct.representative_text && (
+                    <div style={{ marginTop: 10 }}>
+                      <strong>Representative text:</strong>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#1e293b', padding: 8, borderRadius: 4, marginTop: 4, maxHeight: 220, overflowY: 'auto' }}>
+                        {selectedProduct.representative_text}
+                      </pre>
+                    </div>
+                  )}
+                </details>
+
                 <h3 className="dialog-section-title"><FileText size={15} /> Linked Posts ({selectedProduct.post_count})</h3>
                 <div className="dialog-linked-posts">
                   {selectedProduct.linked_posts?.map((lp, idx) => (
                     <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
                       <div className="linked-post-header">
+                        {lp.phone && <span className="linked-post-phone"><Phone size={12} /> <strong>{lp.phone}</strong></span>}
                         <span className="linked-post-sender">{lp.sender}</span>
-                        {lp.phone && <span className="linked-post-phone"><Phone size={12} /> {lp.phone}</span>}
                         {lp.group_name && <span className="linked-post-group"><MessageSquare size={12} /> {lp.group_name}</span>}
                         {idx === 0 ? <span className="badge badge-original">original</span> : <span className="badge badge-duplicate">copy</span>}
                       </div>
@@ -1434,8 +1811,8 @@ function App() {
                   {selectedMatchProduct.linked_posts?.map((lp, idx) => (
                     <div key={lp.id} className={`linked-post-item ${idx === 0 ? 'original' : 'duplicate'}`}>
                       <div className="linked-post-header">
+                        {lp.phone && <span className="linked-post-phone"><Phone size={12} /> <strong>{lp.phone}</strong></span>}
                         <span className="linked-post-sender">{lp.sender}</span>
-                        {lp.phone && <span className="linked-post-phone"><Phone size={12} /> {lp.phone}</span>}
                         {lp.group_name && <span className="linked-post-group"><MessageSquare size={12} /> {lp.group_name}</span>}
                         {idx === 0 ? <span className="badge badge-original">original</span> : <span className="badge badge-duplicate">copy</span>}
                       </div>

@@ -19,21 +19,16 @@ app.use(cors());
 app.use(express.json());
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.use('/api/products', require('./routes/products'));
-app.use('/api/real-products', require('./routes/realProducts'));
+app.use('/api/clusters', require('./routes/clusters'));
+app.use('/api/listings', require('./routes/listings'));
 app.use('/api/matches', require('./routes/matches'));
 
-// Admin: flush all data
+// Admin: flush all data (keeps schema_meta so versioning stays intact)
 app.post('/api/admin/flush', async (_req, res) => {
   try {
     const { pool } = require('./db/postgres');
-    await pool.query('DELETE FROM raw_message_segments');
-    await pool.query('DELETE FROM duplicates');
-    await pool.query('DELETE FROM matches');
-    await pool.query('DELETE FROM products');
-    await pool.query('DELETE FROM real_products');
-    await pool.query('DELETE FROM raw_messages');
-    res.json({ ok: true, message: 'All tables flushed (including raw_messages and segments)' });
+    await pool.query('TRUNCATE match_links, listings, raw_messages, raw_clusters RESTART IDENTITY CASCADE');
+    res.json({ ok: true, message: 'All tables flushed (raw_clusters, raw_messages, listings, match_links)' });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
@@ -48,16 +43,13 @@ app.post('/api/admin/import-history', async (_req, res) => {
   }
   try {
     const { pool } = require('./db/postgres');
-    const { saveRawMessage } = require('./services/ingestion');
-    // Count before
     const before = await pool.query('SELECT COUNT(*) as c FROM raw_messages');
     const beforeCount = parseInt(before.rows[0].c);
 
     res.json({
       ok: true,
-      message: 'History import initiated. Messages from history sync will be captured automatically. Reconnect WhatsApp to trigger a fresh history sync from all groups.',
+      message: 'History sync is automatic on connect (14-day window). Use /api/whatsapp/disconnect + /api/whatsapp/connect to trigger a fresh pull.',
       before_count: beforeCount,
-      tip: 'Use POST /api/whatsapp/disconnect then POST /api/whatsapp/connect to trigger a full history re-sync.',
     });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });

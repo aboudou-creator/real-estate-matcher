@@ -1,144 +1,173 @@
-// ─── PostgreSQL-based offer/demand matching ──────────────────────────────────
-// When a new real_product is created, find matching products of the opposite type.
+// ─── Offer ↔ Demand matcher (spec §12) ─────────────────────────────────────
+// Weighted scoring:  category 35  +  transaction 20  +  location 20  +
+//                    price 20  +  bedrooms 5   = 100
+//
+// Only runs on real-estate listings with type_final ∈ {offer, demand}.
 
 const { pool } = require('../db/postgres');
 
+const WEIGHTS = {
+  category: 35,
+  transaction: 20,
+  location: 20,
+  price: 20,
+  bedrooms: 5,
+};
+
+// ─── Axis scorers ──────────────────────────────────────────────────────────
+
+function scoreCategory(a, b) {
+  if (!a.category || !b.category) return 0;
+  if (a.category === b.category) return WEIGHTS.category;
+  // Soft cross-match for semantically close categories
+  const pairs = [
+    ['room', 'colocation'],
+    ['office', 'shop'],
+  ];
+  for (const [x, y] of pairs) {
+    if ((a.category === x && b.category === y) || (a.category === y && b.category === x)) {
+      return Math.round(WEIGHTS.category * 0.4);
+    }
+  }
+  return 0;
+}
+
+function scoreTransaction(a, b) {
+  if (!a.transaction_type || !b.transaction_type) return 0;
+  return a.transaction_type === b.transaction_type ? WEIGHTS.transaction : 0;
+}
+
+function locationCandidates(listing) {
+  const out = [];
+  if (listing.neighborhood || listing.city || listing.zone) {
+    out.push({
+      neighborhood: listing.neighborhood || null,
+      city: listing.city || null,
+      zone: listing.zone || null,
+    });
+  }
+  if (Array.isArray(listing.preferred_locations)) {
+    for (const pl of listing.preferred_locations) {
+      if (pl && (pl.neighborhood || pl.city || pl.zone)) out.push(pl);
+    }
+  }
+  return out;
+}
+
+function scoreLocationPair(a, b) {
+  if (a.neighborhood && b.neighborhood &&
+      a.neighborhood.toLowerCase() === b.neighborhood.toLowerCase()) return WEIGHTS.location;
+  if (a.zone && b.zone && a.zone === b.zone) return Math.round(WEIGHTS.location * 0.6);
+  if (a.city && b.city && a.city.toLowerCase() === b.city.toLowerCase()) return Math.round(WEIGHTS.location * 0.3);
+  return 0;
+}
+
+function scoreLocation(a, b) {
+  const A = locationCandidates(a);
+  const B = locationCandidates(b);
+  if (A.length === 0 || B.length === 0) return 0;
+  let best = 0;
+  for (const ac of A) for (const bc of B) {
+    best = Math.max(best, scoreLocationPair(ac, bc));
+    if (best === WEIGHTS.location) return best;
+  }
+  return best;
+}
+
+function scorePrice(a, b) {
+  const pa = a.price_amount;
+  const pb = b.price_amount;
+  if (pa == null || pb == null || pa === 0 || pb === 0) return 0;
+  const diff = Math.abs(pa - pb) / Math.max(pa, pb);
+  if (diff <= 0.10) return WEIGHTS.price;
+  if (diff <= 0.20) return Math.round(WEIGHTS.price * 0.75);
+  if (diff <= 0.30) return Math.round(WEIGHTS.price * 0.5);
+  if (diff <= 0.50) return Math.round(WEIGHTS.price * 0.25);
+  return 0;
+}
+
+function scoreBedrooms(a, b) {
+  if (a.bedrooms == null || b.bedrooms == null) return 0;
+  if (a.bedrooms === b.bedrooms) return WEIGHTS.bedrooms;
+  if (Math.abs(a.bedrooms - b.bedrooms) === 1) return Math.round(WEIGHTS.bedrooms * 0.5);
+  return 0;
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────
+
 /**
- * Calculate a match score between two real products.
+ * Score a potential match between two listings (offer and demand).
+ * Returns score 0-100 plus a per-axis breakdown and human-readable reasons.
  */
-function calculateMatchScore(rp1, rp2) {
-  let score = 0;
-  let factors = 0;
+function scoreMatch(a, b) {
+  const breakdown = {
+    category:    scoreCategory(a, b),
+    transaction: scoreTransaction(a, b),
+    location:    scoreLocation(a, b),
+    price:       scorePrice(a, b),
+    bedrooms:    scoreBedrooms(a, b),
+  };
+  const score = Object.values(breakdown).reduce((sum, v) => sum + v, 0);
 
-  // Same category is a prerequisite (already filtered in query)
-  score += 0.15;
-  factors += 0.15;
+  const reasons = [];
+  if (breakdown.category === WEIGHTS.category) reasons.push('same category');
+  else if (breakdown.category > 0)             reasons.push('related category');
 
-  // Same transaction type
-  if (rp1.transaction_type === rp2.transaction_type) {
-    score += 0.10;
-  }
-  factors += 0.10;
+  if (breakdown.transaction === WEIGHTS.transaction) reasons.push('same transaction');
 
-  // Price matching (within 25% range)
-  if (rp1.price && rp2.price) {
-    const p1 = parseFloat(rp1.price);
-    const p2 = parseFloat(rp2.price);
-    const priceDiff = Math.abs(p1 - p2) / Math.max(p1, p2);
-    if (priceDiff <= 0.25) {
-      score += (1 - priceDiff) * 0.30;
-    }
-    factors += 0.30;
-  }
+  if (breakdown.location === WEIGHTS.location)       reasons.push('same neighborhood');
+  else if (breakdown.location >= WEIGHTS.location * 0.6) reasons.push('same zone');
+  else if (breakdown.location > 0)                   reasons.push('same city');
 
-  // Location matching — supports multi-location OR for demands
-  // A demand may have preferred_locations: [{city, neighborhood, zone}, ...]
-  // An offer matches if it fits ANY of the demand's preferred locations
-  const demandRP = rp1.type === 'demand' ? rp1 : rp2.type === 'demand' ? rp2 : null;
-  const offerRP = rp1.type === 'offer' ? rp1 : rp2.type === 'offer' ? rp2 : null;
+  if (breakdown.price === WEIGHTS.price)             reasons.push('price within 10%');
+  else if (breakdown.price >= WEIGHTS.price * 0.75)  reasons.push('price within 20%');
+  else if (breakdown.price > 0)                      reasons.push('price within 50%');
 
-  let prefLocs = null;
-  if (demandRP && demandRP.preferred_locations) {
-    try {
-      prefLocs = typeof demandRP.preferred_locations === 'string'
-        ? JSON.parse(demandRP.preferred_locations)
-        : demandRP.preferred_locations;
-    } catch (_) {}
-  }
+  if (breakdown.bedrooms === WEIGHTS.bedrooms)       reasons.push('same bedrooms');
+  else if (breakdown.bedrooms > 0)                   reasons.push('±1 bedroom');
 
-  if (prefLocs && prefLocs.length > 0 && offerRP) {
-    // OR-matching: best location score among all preferred locations
-    let bestLocScore = 0;
-    for (const loc of prefLocs) {
-      let locScore = 0;
-      if (loc.city && offerRP.city && loc.city.toLowerCase() === offerRP.city.toLowerCase()) {
-        locScore = 0.15;
-        if (loc.neighborhood && offerRP.neighborhood &&
-            loc.neighborhood.toLowerCase() === offerRP.neighborhood.toLowerCase()) {
-          locScore = 0.20;
-        }
-      }
-      if (locScore > bestLocScore) bestLocScore = locScore;
-    }
-    score += bestLocScore;
-    factors += 0.20;
-  } else if (rp1.city && rp2.city) {
-    if (rp1.city === rp2.city) {
-      score += 0.15;
-      // Bonus for same neighborhood
-      if (rp1.neighborhood && rp2.neighborhood && rp1.neighborhood === rp2.neighborhood) {
-        score += 0.05;
-      }
-    }
-    factors += 0.20;
-  }
-
-  // Bedrooms matching
-  if (rp1.bedrooms != null && rp2.bedrooms != null) {
-    const diff = Math.abs(rp1.bedrooms - rp2.bedrooms);
-    if (diff === 0) score += 0.15;
-    else if (diff === 1) score += 0.08;
-    factors += 0.15;
-  }
-
-  // Area matching (within 20%)
-  if (rp1.area && rp2.area) {
-    const a1 = parseFloat(rp1.area);
-    const a2 = parseFloat(rp2.area);
-    const areaDiff = Math.abs(a1 - a2) / Math.max(a1, a2);
-    if (areaDiff <= 0.20) {
-      score += (1 - areaDiff) * 0.10;
-    }
-    factors += 0.10;
-  }
-
-  return factors > 0 ? parseFloat((score / factors).toFixed(3)) : 0;
+  return { score, breakdown, reasons };
 }
 
 /**
- * Find and insert matches for a newly created real_product.
- * Only matches with opposite type (offer ↔ demand).
- * Returns array of new match rows.
+ * Find all possible matches for a newly-created listing and persist the ones
+ * that clear the threshold into `match_links`.
  */
-async function findMatchesForProduct(realProductId) {
-  const rpResult = await pool.query('SELECT * FROM real_products WHERE id = $1', [realProductId]);
-  if (rpResult.rows.length === 0) return [];
+async function findMatchesForListing(listingId, minScore = 50) {
+  const { rows } = await pool.query('SELECT * FROM listings WHERE id = $1', [listingId]);
+  if (rows.length === 0) return [];
+  const listing = rows[0];
 
-  const rp = rpResult.rows[0];
-  const oppositeType = rp.type === 'offer' ? 'demand' : 'offer';
+  // Only real-estate offers/demands participate in matching
+  if (!listing.type || !['offer', 'demand'].includes(listing.type)) return [];
 
-  // Find candidates: opposite type, same category, same transaction type
+  const counterpart = listing.type === 'offer' ? 'demand' : 'offer';
   const candidates = await pool.query(
-    `SELECT * FROM real_products
-     WHERE type = $1 AND category = $2 AND transaction_type = $3 AND id != $4`,
-    [oppositeType, rp.category, rp.transaction_type, realProductId]
+    `SELECT * FROM listings WHERE type = $1 AND transaction_type = $2`,
+    [counterpart, listing.transaction_type]
   );
 
-  const newMatches = [];
-  for (const candidate of candidates.rows) {
-    const score = calculateMatchScore(rp, candidate);
-
-    if (score >= 0.70) {
-      // Check if match already exists
-      const existing = await pool.query(
-        `SELECT id FROM matches
-         WHERE (product1_id = $1 AND product2_id = $2) OR (product1_id = $2 AND product2_id = $1)`,
-        [realProductId, candidate.id]
+  const matches = [];
+  for (const cand of candidates.rows) {
+    const a = listing.type === 'offer' ? listing : cand;
+    const b = listing.type === 'offer' ? cand    : listing;
+    const { score, breakdown, reasons } = scoreMatch(a, b);
+    if (score < minScore) continue;
+    try {
+      const ins = await pool.query(
+        `INSERT INTO match_links (offer_listing_id, demand_listing_id, score, breakdown, reasons)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)
+         ON CONFLICT (offer_listing_id, demand_listing_id) DO UPDATE
+           SET score = EXCLUDED.score,
+               breakdown = EXCLUDED.breakdown,
+               reasons = EXCLUDED.reasons
+         RETURNING *`,
+        [a.id, b.id, score, JSON.stringify(breakdown), JSON.stringify(reasons)]
       );
-
-      if (existing.rows.length === 0) {
-        const matchType = score >= 0.75 ? 'excellent' : score >= 0.5 ? 'good' : 'partial';
-        const result = await pool.query(
-          `INSERT INTO matches (product1_id, product2_id, score, match_type)
-           VALUES ($1, $2, $3, $4) RETURNING *`,
-          [realProductId, candidate.id, score, matchType]
-        );
-        newMatches.push(result.rows[0]);
-      }
-    }
+      matches.push(ins.rows[0]);
+    } catch (_) { /* skip dup collisions */ }
   }
-
-  return newMatches;
+  return matches;
 }
 
-module.exports = { findMatchesForProduct, calculateMatchScore };
+module.exports = { scoreMatch, findMatchesForListing, WEIGHTS };

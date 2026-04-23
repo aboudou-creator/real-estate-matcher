@@ -1,161 +1,168 @@
-// ─── Match & duplicate routes ────────────────────────────────────────────────
+// ─── Match link routes ──────────────────────────────────────────────────────
+// Offer ↔ Demand pairs with weighted breakdown + reasons.
+// Grouped views: by-demand (one demand → N offers), by-offer (one offer → N demands).
+
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../db/postgres');
 
-// Helper: build a real_product JSON object for match queries
-const rpJson = (alias, pAlias) => `
-  json_build_object(
-    '_id', ${alias}.id, 'price', ${alias}.price,
-    'location', COALESCE(${alias}.neighborhood || ', ', '') || ${alias}.city,
-    'category', ${alias}.category, 'type', ${alias}.type,
-    'title', ${alias}.title, 'city', ${alias}.city,
-    'neighborhood', ${alias}.neighborhood,
-    'bedrooms', ${alias}.bedrooms, 'area', ${alias}.area,
-    'transaction_type', ${alias}.transaction_type,
-    'post_count', ${alias}.post_count,
-    'preferred_locations', ${alias}.preferred_locations,
-    'phone',       (SELECT ${pAlias}.phone       FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id AND ${pAlias}.phone IS NOT NULL LIMIT 1),
-    'description', (SELECT ${pAlias}.description FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id LIMIT 1),
-    'sender',      (SELECT ${pAlias}.sender      FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id LIMIT 1),
-    'group_name',  (SELECT ${pAlias}.group_name  FROM products ${pAlias} WHERE ${pAlias}.real_product_id = ${alias}.id LIMIT 1),
-    'created_at',  ${alias}.created_at,
-    'zone',        ${alias}.zone
-  )`;
+const LISTING_SELECT = `
+  l.id, l.title, l.category, l.transaction_type, l.type,
+  l.price_amount, l.price_kind, l.conditions_months,
+  l.city, l.neighborhood, l.zone, l.bedrooms, l.area, l.phone,
+  l.preferred_locations, l.created_at,
+  c.duplicate_count_exact_raw, c.distinct_sender_count_exact_raw,
+  c.first_sender, c.first_sender_phone, c.first_posted_at,
+  c.all_senders_in_order, c.all_group_ids,
+  c.offer_score, c.demand_score, c.type_confidence, c.conflict_flags,
+  c.type_reason_summary, c.representative_text
+`;
 
-// GET /api/matches — all match pairs (existing behavior)
+// GET /api/matches — flat list of pairs with both sides joined
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        m.id as _id, m.score, m.match_type, m.created_at as "createdAt",
-        ${rpJson('rp1', 'p1')} as post1,
-        ${rpJson('rp2', 'p2')} as post2
-      FROM matches m
-      JOIN real_products rp1 ON m.product1_id = rp1.id
-      JOIN real_products rp2 ON m.product2_id = rp2.id
-      ORDER BY m.score DESC
-      LIMIT 500
-    `);
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const { min_score = 50, limit = 500 } = req.query;
+    const r = await pool.query(
+      `SELECT m.id AS match_id, m.score, m.breakdown, m.reasons, m.created_at AS matched_at,
+              ${LISTING_SELECT.replace(/\bl\./g, 'lo.').replace(/\bc\./g, 'co.')} AS _offer_dummy
+       FROM match_links m
+       JOIN listings lo ON lo.id = m.offer_listing_id
+       JOIN raw_clusters co ON co.id = lo.cluster_id
+       JOIN listings ld ON ld.id = m.demand_listing_id
+       JOIN raw_clusters cd ON cd.id = ld.cluster_id
+       WHERE m.score >= $1
+       ORDER BY m.score DESC LIMIT $2`,
+      [parseInt(min_score), parseInt(limit)]
+    );
+    // Replace with a two-query approach for clean column names
+    const detailed = await pool.query(
+      `SELECT m.id AS match_id, m.score, m.breakdown, m.reasons, m.created_at AS matched_at,
+              lo.id AS offer_id, lo.title AS offer_title, lo.category AS offer_category,
+              lo.transaction_type AS offer_tx, lo.price_amount AS offer_price,
+              lo.price_kind AS offer_price_kind, lo.city AS offer_city,
+              lo.neighborhood AS offer_neighborhood, lo.zone AS offer_zone,
+              lo.bedrooms AS offer_bedrooms, lo.phone AS offer_phone,
+              co.first_sender AS offer_first_sender,
+              co.first_sender_phone AS offer_first_phone,
+              co.duplicate_count_exact_raw AS offer_duplicate_count,
+              co.distinct_sender_count_exact_raw AS offer_distinct_senders,
+              co.first_posted_at AS offer_first_posted_at,
+              co.all_senders_in_order AS offer_all_senders,
+              co.representative_text AS offer_text,
+              ld.id AS demand_id, ld.title AS demand_title, ld.category AS demand_category,
+              ld.transaction_type AS demand_tx, ld.price_amount AS demand_price,
+              ld.city AS demand_city, ld.neighborhood AS demand_neighborhood,
+              ld.zone AS demand_zone, ld.bedrooms AS demand_bedrooms, ld.phone AS demand_phone,
+              ld.preferred_locations AS demand_preferred_locations,
+              cd.first_sender AS demand_first_sender,
+              cd.first_sender_phone AS demand_first_phone,
+              cd.duplicate_count_exact_raw AS demand_duplicate_count,
+              cd.distinct_sender_count_exact_raw AS demand_distinct_senders,
+              cd.first_posted_at AS demand_first_posted_at,
+              cd.all_senders_in_order AS demand_all_senders,
+              cd.representative_text AS demand_text
+       FROM match_links m
+       JOIN listings lo ON lo.id = m.offer_listing_id
+       JOIN raw_clusters co ON co.id = lo.cluster_id
+       JOIN listings ld ON ld.id = m.demand_listing_id
+       JOIN raw_clusters cd ON cd.id = ld.cluster_id
+       WHERE m.score >= $1
+       ORDER BY m.score DESC LIMIT $2`,
+      [parseInt(min_score), parseInt(limit)]
+    );
+    res.json(detailed.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/matches/by-demands — each demand with its matching offers (>= minScore, default 0.75)
-router.get('/by-demands', async (req, res) => {
+// GET /api/matches/by-demand — each demand with its matched offers
+router.get('/by-demand', async (req, res) => {
   try {
-    const minScore = parseFloat(req.query.min_score) || 0.75;
-    const result = await pool.query(`
-      SELECT
-        m.id as match_id, m.score,
-        ${rpJson('rd', 'pd')} as demand,
-        ${rpJson('ro', 'po')} as offer
-      FROM matches m
-      JOIN real_products rd ON (
-        (m.product1_id = rd.id AND rd.type = 'demand') OR
-        (m.product2_id = rd.id AND rd.type = 'demand')
-      )
-      JOIN real_products ro ON (
-        (m.product1_id = ro.id AND ro.type = 'offer') OR
-        (m.product2_id = ro.id AND ro.type = 'offer')
-      )
-      WHERE m.score >= $1
-      ORDER BY m.score DESC
-    `, [minScore]);
+    const { min_score = 50 } = req.query;
+    const demands = await pool.query(
+      `SELECT l.*, c.first_sender, c.first_sender_phone, c.duplicate_count_exact_raw,
+              c.distinct_sender_count_exact_raw, c.representative_text,
+              c.conflict_flags, c.offer_score, c.demand_score, c.type_confidence
+       FROM listings l JOIN raw_clusters c ON c.id = l.cluster_id
+       WHERE l.type = 'demand'
+       ORDER BY c.first_posted_at DESC NULLS LAST`
+    );
 
-    // Group by demand _id
-    const grouped = {};
-    for (const row of result.rows) {
-      const dId = row.demand._id;
-      if (!grouped[dId]) {
-        grouped[dId] = { demand: row.demand, offers: [] };
-      }
-      grouped[dId].offers.push({ match_id: row.match_id, score: row.score, offer: row.offer });
+    const offers = await pool.query(
+      `SELECT m.id AS match_id, m.demand_listing_id, m.score, m.breakdown, m.reasons,
+              lo.*, co.first_sender, co.first_sender_phone,
+              co.duplicate_count_exact_raw, co.distinct_sender_count_exact_raw,
+              co.representative_text, co.conflict_flags, co.type_confidence
+       FROM match_links m
+       JOIN listings lo ON lo.id = m.offer_listing_id
+       JOIN raw_clusters co ON co.id = lo.cluster_id
+       WHERE m.score >= $1
+       ORDER BY m.score DESC`,
+      [parseInt(min_score)]
+    );
+
+    const byDemand = new Map();
+    for (const d of demands.rows) byDemand.set(d.id, { demand: d, offers: [] });
+    for (const o of offers.rows) {
+      const bucket = byDemand.get(o.demand_listing_id);
+      if (bucket) bucket.offers.push(o);
     }
-    // Sort offers within each demand by score desc
-    const items = Object.values(grouped).map(g => {
-      g.offers.sort((a, b) => b.score - a.score);
-      g.offer_count = g.offers.length;
-      g.best_score = g.offers[0]?.score || 0;
-      return g;
-    });
-    items.sort((a, b) => b.best_score - a.best_score);
-    res.json(items);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const out = [...byDemand.values()].map(b => ({
+      demand: b.demand,
+      offers: b.offers,
+      offer_count: b.offers.length,
+      best_score: b.offers.length ? Math.max(...b.offers.map(o => o.score)) : 0,
+    })).filter(b => b.offer_count > 0);
+
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/matches/by-offers — each offer with its matching demands (>= minScore, default 0.75)
-router.get('/by-offers', async (req, res) => {
+// GET /api/matches/by-offer
+router.get('/by-offer', async (req, res) => {
   try {
-    const minScore = parseFloat(req.query.min_score) || 0.75;
-    const result = await pool.query(`
-      SELECT
-        m.id as match_id, m.score,
-        ${rpJson('ro', 'po')} as offer,
-        ${rpJson('rd', 'pd')} as demand
-      FROM matches m
-      JOIN real_products ro ON (
-        (m.product1_id = ro.id AND ro.type = 'offer') OR
-        (m.product2_id = ro.id AND ro.type = 'offer')
-      )
-      JOIN real_products rd ON (
-        (m.product1_id = rd.id AND rd.type = 'demand') OR
-        (m.product2_id = rd.id AND rd.type = 'demand')
-      )
-      WHERE m.score >= $1
-      ORDER BY m.score DESC
-    `, [minScore]);
+    const { min_score = 50 } = req.query;
+    const offersRes = await pool.query(
+      `SELECT l.*, c.first_sender, c.first_sender_phone, c.duplicate_count_exact_raw,
+              c.distinct_sender_count_exact_raw, c.representative_text,
+              c.conflict_flags, c.offer_score, c.demand_score, c.type_confidence
+       FROM listings l JOIN raw_clusters c ON c.id = l.cluster_id
+       WHERE l.type = 'offer'
+       ORDER BY c.first_posted_at DESC NULLS LAST`
+    );
 
-    // Group by offer _id
-    const grouped = {};
-    for (const row of result.rows) {
-      const oId = row.offer._id;
-      if (!grouped[oId]) {
-        grouped[oId] = { offer: row.offer, demands: [] };
-      }
-      grouped[oId].demands.push({ match_id: row.match_id, score: row.score, demand: row.demand });
+    const demands = await pool.query(
+      `SELECT m.id AS match_id, m.offer_listing_id, m.score, m.breakdown, m.reasons,
+              ld.*, cd.first_sender, cd.first_sender_phone,
+              cd.duplicate_count_exact_raw, cd.distinct_sender_count_exact_raw,
+              cd.representative_text, cd.conflict_flags, cd.type_confidence
+       FROM match_links m
+       JOIN listings ld ON ld.id = m.demand_listing_id
+       JOIN raw_clusters cd ON cd.id = ld.cluster_id
+       WHERE m.score >= $1
+       ORDER BY m.score DESC`,
+      [parseInt(min_score)]
+    );
+
+    const byOffer = new Map();
+    for (const o of offersRes.rows) byOffer.set(o.id, { offer: o, demands: [] });
+    for (const d of demands.rows) {
+      const bucket = byOffer.get(d.offer_listing_id);
+      if (bucket) bucket.demands.push(d);
     }
-    const items = Object.values(grouped).map(g => {
-      g.demands.sort((a, b) => b.score - a.score);
-      g.demand_count = g.demands.length;
-      g.best_score = g.demands[0]?.score || 0;
-      return g;
-    });
-    items.sort((a, b) => b.best_score - a.best_score);
-    res.json(items);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    const out = [...byOffer.values()].map(b => ({
+      offer: b.offer,
+      demands: b.demands,
+      demand_count: b.demands.length,
+      best_score: b.demands.length ? Math.max(...b.demands.map(d => d.score)) : 0,
+    })).filter(b => b.demand_count > 0);
 
-// GET /api/duplicates — duplicate links between raw posts
-router.get('/duplicates', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT
-        d.id, d.similarity, d.created_at,
-        json_build_object(
-          'id', p1.id, 'title', p1.title, 'description', p1.description,
-          'sender', p1.sender, 'price', p1.price, 'location', p1.location,
-          'category', p1.category, 'city', p1.city
-        ) as original,
-        json_build_object(
-          'id', p2.id, 'title', p2.title, 'description', p2.description,
-          'sender', p2.sender, 'price', p2.price, 'location', p2.location,
-          'category', p2.category, 'city', p2.city
-        ) as duplicate
-      FROM duplicates d
-      JOIN products p1 ON d.original_id = p1.id
-      JOIN products p2 ON d.duplicate_id = p2.id
-      ORDER BY d.similarity DESC
-    `);
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

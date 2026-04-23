@@ -61,7 +61,34 @@ async function startWhatsApp() {
     version: [2, 3000, 1034074495],
     logger: P({ level: 'warn' }),
     browser: Browsers.macOS('Google Chrome'),
+    syncFullHistory: true,
     getMessage: async () => undefined,
+  });
+
+  // 14-day history window on connect
+  const HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+  sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
+    const cutoffMs = Date.now() - HISTORY_WINDOW_MS;
+    const groupMessages = messages.filter(m => {
+      if (!m.key?.remoteJid?.endsWith('@g.us')) return false;
+      const tsMs = Number(m.messageTimestamp || 0) * 1000;
+      return tsMs >= cutoffMs;
+    });
+    console.log(`📜 History sync: ${groupMessages.length} messages within 14-day window (isLatest=${isLatest})`);
+    let processed = 0;
+    for (let i = 0; i < groupMessages.length; i += 25) {
+      const chunk = groupMessages.slice(i, i + 25);
+      for (const msg of chunk) {
+        try {
+          const r = await handleMessage(msg, { sourceMode: 'history' });
+          if (r) processed++;
+        } catch (_) {}
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    if (groupMessages.length > 0) {
+      console.log(`📜 History sync done: ${processed} listings from ${groupMessages.length} messages`);
+    }
   });
 
   sock.ev.on('connection.update', async (update) => {
@@ -114,8 +141,8 @@ async function startWhatsApp() {
   });
 }
 
-// ─── Message handling pipeline ───────────────────────────────────────────
-async function handleMessage(message) {
+// ─── Message handling pipeline ───────────────────────────────────────
+async function handleMessage(message, opts = {}) {
   const jid = message.key.remoteJid;
   if (!jid || !jid.endsWith('@g.us')) return;
   if (TARGET_GROUPS.length > 0 && !TARGET_GROUPS.includes(jid)) return;
@@ -130,7 +157,9 @@ async function handleMessage(message) {
 
   if (!text || text.length < 15) return;
 
-  // Centralized ingestion: raw capture → classify → extract → dedup/match
+  const tsSec = Number(message.messageTimestamp || 0);
+  const createdAt = tsSec > 0 ? new Date(tsSec * 1000) : new Date();
+
   const result = await ingestMessage({
     whatsappMessageId: message.key.id,
     sender: message.pushName || 'Unknown',
@@ -138,17 +167,17 @@ async function handleMessage(message) {
     groupId: jid,
     groupName: jid,
     text,
-    sourceMode: 'local',
+    createdAt,
+    sourceMode: opts.sourceMode || 'local',
     emit: (event, data) => emit(event, data),
-    getFullRealProduct: null,
   });
 
-  if (result && result.products && result.products.length > 0) {
-    for (const p of result.products) {
-      const label = p.isDuplicate ? `Duplicate (#${p.realProductId})` : `New #${p.realProductId}`;
-      console.log(`   → ${label}`);
-    }
+  if (result && result.listingId) {
+    console.log(`   → listing #${result.listingId} (cluster #${result.clusterId}, ${result.matchCount} matches)`);
+  } else if (result && !result.isNewCluster) {
+    console.log(`   → duplicate (cluster #${result.clusterId}, now ${result.duplicateCount} copies)`);
   }
+  return result && result.listingId != null;
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────

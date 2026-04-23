@@ -6,7 +6,9 @@
 const path = require('path');
 const fs = require('fs');
 const { ingestMessage } = require('./ingestion');
-const { getFullRealProduct } = require('../routes/realProducts');
+
+// History sync window: 14 days
+const HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 // Build proxy agent from WA_PROXY_URL env var (dynamic import — these packages are ESM-only)
 // Supports: socks5://user:pass@host:port  or  http://user:pass@host:port
@@ -83,6 +85,7 @@ async function connectWhatsApp() {
     browser: Browsers ? Browsers.macOS('Google Chrome') : undefined,
     agent,
     fetchAgent: agent,
+    syncFullHistory: true,
     getMessage: async (key) => {
       // Required by Baileys v7 for message retries / poll decryption.
       return undefined;
@@ -140,21 +143,30 @@ async function connectWhatsApp() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // WhatsApp pushes recent history automatically on connect via this event
+  // WhatsApp pushes recent history automatically on connect via this event.
+  // We only ingest messages from the last 14 days (spec §2).
   sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
-    const groupMessages = messages.filter(m => m.key?.remoteJid?.endsWith('@g.us'));
-    console.log(`📜 History sync received: ${groupMessages.length} group message(s) (isLatest=${isLatest})`);
+    const cutoffMs = Date.now() - HISTORY_WINDOW_MS;
+    const groupMessages = messages.filter(m => {
+      if (!m.key?.remoteJid?.endsWith('@g.us')) return false;
+      const tsMs = Number(m.messageTimestamp || 0) * 1000;
+      return tsMs >= cutoffMs;
+    });
+    console.log(`📜 History sync: ${groupMessages.length} group messages within 14-day window (isLatest=${isLatest})`);
     let processed = 0;
-    for (const message of groupMessages) {
-      try {
-        const result = await handleMessage(message);
-        if (result) processed++;
-      } catch (err) {
-        // skip individual errors
+    // Throttle: process in chunks of 25 with small pauses to avoid swamping PG
+    for (let i = 0; i < groupMessages.length; i += 25) {
+      const chunk = groupMessages.slice(i, i + 25);
+      for (const message of chunk) {
+        try {
+          const r = await handleMessage(message, { sourceMode: 'history' });
+          if (r) processed++;
+        } catch (_) {}
       }
+      await new Promise(r => setTimeout(r, 50));
     }
     if (groupMessages.length > 0) {
-      console.log(`📜 History sync done: ${processed} real estate post(s) extracted from ${groupMessages.length} messages`);
+      console.log(`📜 History sync done: ${processed} real-estate listings created from ${groupMessages.length} messages`);
     }
   });
 
@@ -184,7 +196,7 @@ async function resolveGroupName(jid) {
   }
 }
 
-async function handleMessage(message) {
+async function handleMessage(message, opts = {}) {
   const jid = message.key.remoteJid;
   if (!jid || !jid.endsWith('@g.us')) return;
   if (TARGET_GROUPS.length > 0 && !TARGET_GROUPS.includes(jid)) return;
@@ -200,8 +212,10 @@ async function handleMessage(message) {
   if (!text || text.length < 15) return;
 
   const groupName = await resolveGroupName(jid);
+  const tsSec = Number(message.messageTimestamp || 0);
+  const createdAt = tsSec > 0 ? new Date(tsSec * 1000) : new Date();
 
-  // Centralized ingestion: raw capture → classify → extract → dedup/match
+  // Centralized ingestion: raw capture → exact dedup → (if new) classify + extract + match
   const result = await ingestMessage({
     whatsappMessageId: message.key.id,
     sender: message.pushName || 'Unknown',
@@ -209,12 +223,12 @@ async function handleMessage(message) {
     groupId: jid,
     groupName,
     text,
-    sourceMode: 'live',
+    createdAt,
+    sourceMode: opts.sourceMode || 'live',
     emit: io ? (event, data) => io.emit(event, data) : null,
-    getFullRealProduct,
   });
 
-  return result && result.products && result.products.length > 0;
+  return result && result.listingId != null;
 }
 
 async function disconnectWhatsApp() {
