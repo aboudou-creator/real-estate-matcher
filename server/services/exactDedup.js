@@ -186,8 +186,8 @@ async function findOrCreateCluster(msg, client = null) {
     if (isNewCluster) {
       await c.query(
         `UPDATE raw_clusters SET
-           representative_raw_message_id = $1,
-           all_raw_message_ids = jsonb_build_array($1)
+           representative_raw_message_id = $1::int,
+           all_raw_message_ids = jsonb_build_array($1::int)
          WHERE id = $2`,
         [rawMessageId, clusterId]
       );

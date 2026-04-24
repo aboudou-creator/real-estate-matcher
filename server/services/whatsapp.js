@@ -177,7 +177,7 @@ async function connectWhatsApp() {
       try {
         await handleMessage(message);
       } catch (err) {
-        console.error('Error handling message:', err.message);
+        console.error('Error handling message:', err.message, '\n  code:', err.code, '\n  where:', err.where, '\n  stack:', err.stack?.split('\n').slice(0, 5).join('\n'));
       }
     }
   });
