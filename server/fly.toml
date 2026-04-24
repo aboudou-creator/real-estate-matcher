@@ -19,3 +19,7 @@ primary_region = "iad"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
+
+[[mounts]]
+  source = "auth_data"
+  destination = "/app/auth_info"
