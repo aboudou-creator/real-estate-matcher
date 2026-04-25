@@ -76,6 +76,20 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/matches/count — total count of pairs at a given min_score
+router.get('/count', async (req, res) => {
+  try {
+    const minScore = parseInt(req.query.min_score || '50', 10);
+    const r = await pool.query(
+      'SELECT COUNT(*) AS n FROM match_links WHERE score >= $1',
+      [minScore]
+    );
+    res.json({ count: parseInt(r.rows[0].n, 10) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/matches/by-demand — each demand with its matched offers
 router.get('/by-demand', async (req, res) => {
   try {

@@ -67,6 +67,16 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/listings/count — total count (must be declared BEFORE /:id)
+router.get('/count', async (_req, res) => {
+  try {
+    const r = await pool.query('SELECT COUNT(*) AS n FROM listings');
+    res.json({ count: parseInt(r.rows[0].n, 10) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/listings/:id — full listing with cluster + matches
 router.get('/:id', async (req, res) => {
   try {
