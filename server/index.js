@@ -22,6 +22,7 @@ app.use(express.json());
 app.use('/api/clusters', require('./routes/clusters'));
 app.use('/api/listings', require('./routes/listings'));
 app.use('/api/matches', require('./routes/matches'));
+app.use('/api/raw-messages', require('./routes/rawMessages'));
 
 // Admin: flush all data (keeps schema_meta so versioning stays intact)
 app.post('/api/admin/flush', async (_req, res) => {

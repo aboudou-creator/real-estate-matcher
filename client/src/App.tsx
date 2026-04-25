@@ -218,6 +218,35 @@ interface RealProduct {
   preferred_locations?: Array<{ city: string | null; neighborhood: string | null; zone: string | null }> | null;
 }
 
+interface RawMessage {
+  id: number;
+  whatsapp_message_id: string | null;
+  sender: string;
+  sender_phone: string | null;
+  group_id: string | null;
+  group_name: string | null;
+  text: string;
+  source_mode: 'live' | 'history' | 'import';
+  created_at: string;
+  cluster_id: number | null;
+  cluster_is_real_estate: boolean | null;
+  cluster_type: 'offer' | 'demand' | 'ambiguous' | null;
+  cluster_duplicate_count: number | null;
+  cluster_distinct_senders: number | null;
+  representative_raw_message_id: number | null;
+  listing_id: number | null;
+  listing_title: string | null;
+  listing_category: string | null;
+  listing_transaction: string | null;
+  listing_price: number | null;
+  listing_city: string | null;
+  listing_neighborhood: string | null;
+  listing_zone: string | null;
+  listing_bedrooms: number | null;
+  is_representative: boolean;
+  status: 'classified' | 'rejected' | 'real_estate_no_listing' | 'pending';
+}
+
 type TabType = 'products' | 'posts' | 'matches' | 'aggregated';
 type FilterType = 'all' | 'offers' | 'demands';
 type CategoryFilter = 'all' | 'apartment' | 'room' | 'house' | 'ground' | 'agricultural_ground' | 'colocation' | 'commercial';
@@ -430,6 +459,19 @@ function App() {
   const [demandMatches, setDemandMatches] = useState<DemandWithOffers[]>([]);
   const [offerMatches, setOfferMatches] = useState<OfferWithDemands[]>([]);
   const [selectedMatchProduct, setSelectedMatchProduct] = useState<RealProduct | null>(null);
+  // Raw messages (Posts tab) — one card per WhatsApp message
+  const [rawMessages, setRawMessages] = useState<RawMessage[]>([]);
+  const [rawMessagesCount, setRawMessagesCount] = useState<number>(0);
+  const [rawMessagesLoading, setRawMessagesLoading] = useState(false);
+  const [selectedRawMessage, setSelectedRawMessage] = useState<RawMessage | null>(null);
+  // Search + sort state (per tab, kept globally for simplicity)
+  const [productsQuery, setProductsQuery] = useState<string>('');
+  const [productsSort, setProductsSort] = useState<'newest' | 'oldest' | 'price_desc' | 'price_asc'>('newest');
+  const [postsQuery, setPostsQuery] = useState<string>('');
+  const [postsSort, setPostsSort] = useState<'newest' | 'oldest'>('newest');
+  const [postsStatusFilter, setPostsStatusFilter] = useState<'all' | 'classified' | 'rejected' | 'pending'>('all');
+  const [matchesQuery, setMatchesQuery] = useState<string>('');
+  const [matchesSort, setMatchesSort] = useState<'score_desc' | 'score_asc' | 'newest' | 'oldest'>('score_desc');
 
   const openMatchProductDetail = (productId: number) => {
     const rp = realProducts.find(r => r.id === productId);
@@ -443,6 +485,20 @@ function App() {
         })
         .catch(() => {});
     }
+  };
+
+  // Open the side-by-side Match dialog for an ad-hoc (offer, demand) pair.
+  // Used from Demandes view (click on an offer row) and Offres view (click on
+  // a demand row). `score` is expected in 0..1 range.
+  const openPairMatchDetail = (offer: MatchProduct, demand: MatchProduct, score: number, matchId: number | string) => {
+    setSelectedMatch({
+      _id: String(matchId),
+      post1: offer,
+      post2: demand,
+      score,
+      match_type: 'score',
+      createdAt: (offer.created_at || demand.created_at || new Date().toISOString()) as string,
+    });
   };
 
   const fetchInitialData = useCallback(async () => {
@@ -523,6 +579,37 @@ function App() {
       setLoading(false);
     }
   }, []);
+
+  const fetchRawMessages = useCallback(async () => {
+    try {
+      setRawMessagesLoading(true);
+      const params = new URLSearchParams();
+      params.set('limit', '1000');
+      if (postsQuery.trim()) params.set('q', postsQuery.trim());
+      if (postsStatusFilter !== 'all') params.set('status', postsStatusFilter);
+      params.set('order', postsSort === 'oldest' ? 'oldest' : 'newest');
+      const [listRes, countRes] = await Promise.all([
+        fetch(`${API_URL}/api/raw-messages?${params.toString()}`).catch(() => null),
+        fetch(`${API_URL}/api/raw-messages/count`).catch(() => null),
+      ]);
+      const list = listRes ? await listRes.json().catch(() => []) : [];
+      const count = countRes ? await countRes.json().catch(() => ({ count: 0 })) : { count: 0 };
+      if (Array.isArray(list)) setRawMessages(list);
+      setRawMessagesCount(count.count || 0);
+    } catch (error) {
+      console.error('Error fetching raw messages:', error);
+    } finally {
+      setRawMessagesLoading(false);
+    }
+  }, [postsQuery, postsStatusFilter, postsSort]);
+
+  // Refetch raw messages whenever the Posts tab is active and filters change
+  useEffect(() => {
+    if (activeTab !== 'posts') return;
+    const t = setTimeout(() => { fetchRawMessages(); }, 200); // debounce text query
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, postsQuery, postsStatusFilter, postsSort]);
 
   // Buffers for high-frequency socket events — flushed to state every 5s
   const newRPBuffer = useRef<RealProduct[]>([]);
@@ -612,19 +699,35 @@ function App() {
     return true;
   });
 
-  const filteredRealProducts = realProducts.filter((p) => {
-    if (filter !== 'all' && p.type !== (filter === 'offers' ? 'offer' : 'demand')) return false;
-    if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
-    if (transactionFilter !== 'all' && p.transaction_type !== transactionFilter) return false;
-    if (cityFilter !== 'all' && p.city !== cityFilter) return false;
-    if (zoneFilter !== 'all' && p.zone !== zoneFilter) return false;
-    if (bedroomsFilter !== 'all') {
-      const bed = p.bedrooms || 0;
-      if (bedroomsFilter === '5+' ? bed < 5 : bed !== parseInt(bedroomsFilter)) return false;
-    }
-    if (priceMax && p.price > parseInt(priceMax)) return false;
-    return true;
-  });
+  const productsQueryLower = productsQuery.trim().toLowerCase();
+  const filteredRealProducts = realProducts
+    .filter((p) => {
+      if (filter !== 'all' && p.type !== (filter === 'offers' ? 'offer' : 'demand')) return false;
+      if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
+      if (transactionFilter !== 'all' && p.transaction_type !== transactionFilter) return false;
+      if (cityFilter !== 'all' && p.city !== cityFilter) return false;
+      if (zoneFilter !== 'all' && p.zone !== zoneFilter) return false;
+      if (bedroomsFilter !== 'all') {
+        const bed = p.bedrooms || 0;
+        if (bedroomsFilter === '5+' ? bed < 5 : bed !== parseInt(bedroomsFilter)) return false;
+      }
+      if (priceMax && p.price > parseInt(priceMax)) return false;
+      if (productsQueryLower) {
+        const hay = [
+          p.title, p.representative_text, p.city, p.neighborhood, p.zone,
+          p.first_sender, p.first_sender_phone,
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(productsQueryLower)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (productsSort === 'price_desc') return (b.price || 0) - (a.price || 0);
+      if (productsSort === 'price_asc')  return (a.price || 0) - (b.price || 0);
+      const ta = new Date(a.created_at || 0).getTime();
+      const tb = new Date(b.created_at || 0).getTime();
+      return productsSort === 'oldest' ? ta - tb : tb - ta;
+    });
 
   const renderEmpty = (label: string) => (
     <div className="empty-state">
@@ -685,6 +788,26 @@ function App() {
     return (
     <>
       <div className="card">
+        {/* Free-text search + sort */}
+        <div className="filter-row-compact">
+          <input
+            type="search"
+            className="free-search-input"
+            placeholder="Rechercher titre, texte, quartier, sender, téléphone…"
+            value={productsQuery}
+            onChange={(e) => setProductsQuery(e.target.value)}
+          />
+          <label className="compact-filter">
+            <span>Tri</span>
+            <select value={productsSort} onChange={(e) => setProductsSort(e.target.value as any)}>
+              <option value="newest">Plus récents</option>
+              <option value="oldest">Plus anciens</option>
+              <option value="price_desc">Prix décroissant</option>
+              <option value="price_asc">Prix croissant</option>
+            </select>
+          </label>
+        </div>
+
         <div className="filter-row">
           <div className="filters">
             <button onClick={() => setFilter('all')} className={`filter-btn ${filter === 'all' ? 'active-all' : ''}`}>All ({typeCounts.all})</button>
@@ -928,74 +1051,131 @@ function App() {
   );
   };
 
+  const rawStatusLabel = (s: RawMessage['status']) => {
+    if (s === 'classified') return 'Classé';
+    if (s === 'rejected') return 'Rejeté (non-immo)';
+    if (s === 'real_estate_no_listing') return 'Immo sans extract';
+    return 'En attente';
+  };
+
+  const rawStatusClass = (s: RawMessage['status']) => {
+    if (s === 'classified') return 'badge-status-classified';
+    if (s === 'rejected') return 'badge-status-rejected';
+    if (s === 'real_estate_no_listing') return 'badge-status-partial';
+    return 'badge-status-pending';
+  };
+
   const renderPosts = () => (
     <>
       <div className="card">
-        <div className="filter-row">
-          <div className="filters">
-            <button onClick={() => setFilter('all')} className={`filter-btn ${filter === 'all' ? 'active-all' : ''}`}>All ({filteredProducts.length})</button>
-            <button onClick={() => setFilter('offers')} className={`filter-btn ${filter === 'offers' ? 'active-offers' : ''}`}>Offers</button>
-            <button onClick={() => setFilter('demands')} className={`filter-btn ${filter === 'demands' ? 'active-demands' : ''}`}>Demands</button>
-            <span className="filter-divider" />
-            <button onClick={() => setCategoryFilter('all')} className={`filter-btn ${categoryFilter === 'all' ? 'active-all' : ''}`}>All Types</button>
-            <button onClick={() => setCategoryFilter('apartment')} className={`filter-btn ${categoryFilter === 'apartment' ? 'active-all' : ''}`}>Apartments</button>
-            <button onClick={() => setCategoryFilter('room')} className={`filter-btn ${categoryFilter === 'room' ? 'active-all' : ''}`}>Rooms</button>
-            <button onClick={() => setCategoryFilter('house')} className={`filter-btn ${categoryFilter === 'house' ? 'active-all' : ''}`}>Houses</button>
-            <button onClick={() => setCategoryFilter('ground')} className={`filter-btn ${categoryFilter === 'ground' ? 'active-all' : ''}`}>Ground</button>
-            <button onClick={() => setCategoryFilter('colocation')} className={`filter-btn ${categoryFilter === 'colocation' ? 'active-all' : ''}`}>Colocation</button>
-            <button onClick={() => setCategoryFilter('commercial')} className={`filter-btn ${categoryFilter === 'commercial' ? 'active-all' : ''}`}>Commercial</button>
-          </div>
+        {/* Search + status filter + sort */}
+        <div className="filter-row-compact">
+          <input
+            type="search"
+            className="free-search-input"
+            placeholder="Rechercher dans le texte brut…"
+            value={postsQuery}
+            onChange={(e) => setPostsQuery(e.target.value)}
+          />
+          <label className="compact-filter">
+            <span>Statut</span>
+            <select value={postsStatusFilter} onChange={(e) => setPostsStatusFilter(e.target.value as any)}>
+              <option value="all">Tous</option>
+              <option value="classified">Classés (liés à listing)</option>
+              <option value="rejected">Rejetés (non-immo)</option>
+              <option value="pending">En attente / partiel</option>
+            </select>
+          </label>
+          <label className="compact-filter">
+            <span>Tri</span>
+            <select value={postsSort} onChange={(e) => setPostsSort(e.target.value as any)}>
+              <option value="newest">Plus récents</option>
+              <option value="oldest">Plus anciens</option>
+            </select>
+          </label>
+          <button
+            className="filter-btn"
+            onClick={() => { setPostsQuery(''); setPostsStatusFilter('all'); setPostsSort('newest'); }}
+          >
+            Réinitialiser
+          </button>
         </div>
         <div className="filter-results">
-          <span>{filteredProducts.length} raw posts — {filteredProducts.filter(p => p.is_duplicate).length} duplicates ({filteredProducts.length > 0 ? ((filteredProducts.filter(p => p.is_duplicate).length / filteredProducts.length) * 100).toFixed(0) : 0}%)</span>
+          <span>
+            {rawMessages.length} messages affichés sur {rawMessagesCount} au total
+            {rawMessagesLoading && ' — chargement…'}
+          </span>
         </div>
       </div>
 
       <div className="product-grid">
-        {filteredProducts.map((product) => (
-          <div key={product.id} className={`product-card ${product.is_duplicate ? 'duplicate-card' : ''}`} onClick={() => setSelectedPost(product)} style={{ cursor: 'pointer' }}>
-            <div className="post-header">
-              <div className="post-badges">
-                <span className="category-icon">{getCategoryIcon(product.category)}</span>
-                <span className={`badge ${product.type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>
-                  {product.type}
-                </span>
-                <span className="badge badge-category">{product.category.replace('_', ' ')}</span>
-                <span className="badge badge-transaction">{product.transaction_type}</span>
-                {product.is_duplicate && <span className="badge badge-duplicate">duplicate</span>}
+        {rawMessages.length === 0 && !rawMessagesLoading
+          ? renderEmpty('raw messages')
+          : rawMessages.map((rm) => (
+              <div
+                key={rm.id}
+                className="product-card"
+                onClick={() => setSelectedRawMessage(rm)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="post-header">
+                  <div className="post-badges">
+                    <span className={`badge ${rawStatusClass(rm.status)}`}>{rawStatusLabel(rm.status)}</span>
+                    {rm.cluster_type && rm.cluster_type !== 'ambiguous' && (
+                      <span className={`badge ${rm.cluster_type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>
+                        {rm.cluster_type}
+                      </span>
+                    )}
+                    {rm.source_mode && rm.source_mode !== 'live' && (
+                      <span className="badge badge-source">{rm.source_mode}</span>
+                    )}
+                    {rm.is_representative && (rm.cluster_duplicate_count ?? 1) > 1 && (
+                      <span className="badge badge-duplicate">représentatif (+{(rm.cluster_duplicate_count ?? 1) - 1})</span>
+                    )}
+                    {!rm.is_representative && (
+                      <span className="badge badge-duplicate-copy">copie</span>
+                    )}
+                  </div>
+                </div>
+
+                {rm.listing_id && rm.listing_title && (
+                  <div className="linked-listing-hint" onClick={(e) => { e.stopPropagation(); openMatchProductDetail(rm.listing_id!); }}>
+                    <strong>→ Listing #{rm.listing_id}</strong> {rm.listing_title}
+                  </div>
+                )}
+
+                {rm.sender_phone && (
+                  <div className="product-phone"><Phone size={14} /> <strong>{rm.sender_phone}</strong></div>
+                )}
+
+                {rm.listing_price && (
+                  <div className="product-price">{formatCFA(Number(rm.listing_price))}</div>
+                )}
+
+                {(rm.listing_city || rm.listing_neighborhood || rm.listing_bedrooms) && (
+                  <div className="post-meta">
+                    {(rm.listing_city || rm.listing_neighborhood) && (
+                      <div className="meta-item"><MapPin size={14} /><span>{rm.listing_neighborhood ? `${rm.listing_neighborhood}, ` : ''}{rm.listing_city}</span></div>
+                    )}
+                    {rm.listing_bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{rm.listing_bedrooms} bed</span></div>}
+                  </div>
+                )}
+
+                {rm.group_name && (
+                  <div className="post-group"><MessageSquare size={13} /> {rm.group_name}</div>
+                )}
+
+                <div className="product-description raw-text-preview">{rm.text}</div>
+
+                <div className="post-footer">
+                  <span className="sender">
+                    {rm.sender_phone && <><Phone size={12} /> <strong>{rm.sender_phone}</strong> · </>}
+                    {rm.sender}
+                  </span>
+                  <span className="timestamp">{formatDate(rm.created_at)}</span>
+                </div>
               </div>
-            </div>
-
-            <h4 className="product-title">{product.title}</h4>
-
-            {product.phone && (
-              <div className="product-phone"><Phone size={14} /> <strong>{product.phone}</strong></div>
-            )}
-
-            <div className="product-price">{formatCFA(product.price)}</div>
-
-            <div className="post-meta">
-              <div className="meta-item"><MapPin size={14} /><span>{product.neighborhood ? `${product.neighborhood}, ` : ''}{product.city}</span></div>
-              {product.bedrooms && <div className="meta-item"><BedDouble size={14} /><span>{product.bedrooms} bed</span></div>}
-              {product.bathrooms && <div className="meta-item"><Bath size={14} /><span>{product.bathrooms} bath</span></div>}
-              {product.area && <div className="meta-item"><Square size={14} /><span>{product.area} m²</span></div>}
-            </div>
-
-            {product.group_name && (
-              <div className="post-group"><MessageSquare size={13} /> {product.group_name}</div>
-            )}
-
-            <div className="product-description">{product.description}</div>
-
-            <div className="post-footer">
-              <span className="sender">
-                {product.phone && <><Phone size={12} /> <strong>{product.phone}</strong> · </>}
-                {product.sender}
-              </span>
-              <span className="timestamp">{formatDate(product.created_at)}</span>
-            </div>
-          </div>
-        ))}
+            ))}
       </div>
     </>
   );
@@ -1064,9 +1244,31 @@ function App() {
     new Set(matches.flatMap(m => [m.post1.zone, m.post2.zone]).filter((z): z is string => !!z))
   ).sort();
 
+  const matchesQueryLower = matchesQuery.trim().toLowerCase();
+  const matchProductHay = (p: MatchProduct) =>
+    [p.title, p.sender, p.phone, p.city, p.neighborhood, p.zone, p.description]
+      .filter(Boolean).join(' ').toLowerCase();
+
+  const matchPassesTextSearch = (a: MatchProduct, b: MatchProduct): boolean => {
+    if (!matchesQueryLower) return true;
+    return matchProductHay(a).includes(matchesQueryLower)
+        || matchProductHay(b).includes(matchesQueryLower);
+  };
+
+  const compareMatches = (aScore: number, bScore: number, aDate?: string | null, bDate?: string | null) => {
+    if (matchesSort === 'score_asc')  return aScore - bScore;
+    if (matchesSort === 'newest' || matchesSort === 'oldest') {
+      const ta = aDate ? new Date(aDate).getTime() : 0;
+      const tb = bDate ? new Date(bDate).getTime() : 0;
+      return matchesSort === 'newest' ? tb - ta : ta - tb;
+    }
+    return bScore - aScore; // score_desc (default)
+  };
+
   const sortedMatches = [...matches]
     .filter(m => matchTierFilter === 'all' || getScoreTier(m.score) === matchTierFilter)
     .filter(m => matchPassesSharedFilters(m.post1, m.post2))
+    .filter(m => matchPassesTextSearch(m.post1, m.post2))
     .filter(m => {
       if (matchCriteriaFilters.has('city')        && m.post1.city !== m.post2.city) return false;
       if (matchCriteriaFilters.has('category')    && m.post1.category !== m.post2.category) return false;
@@ -1075,17 +1277,24 @@ function App() {
       if (matchCriteriaFilters.has('neighborhood') && m.post1.neighborhood !== m.post2.neighborhood) return false;
       return true;
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => compareMatches(a.score, b.score, a.createdAt, b.createdAt));
 
   // Demand/Offer views — filter by shared category/transaction/zone AND tier.
-  const filteredDemandMatches = demandMatches.filter(d =>
-    matchPassesSharedFilters(d.demand, d.demand) &&
-    (matchTierFilter === 'all' || getScoreTier(d.best_score) === matchTierFilter)
-  );
-  const filteredOfferMatches = offerMatches.filter(o =>
-    matchPassesSharedFilters(o.offer, o.offer) &&
-    (matchTierFilter === 'all' || getScoreTier(o.best_score) === matchTierFilter)
-  );
+  const filteredDemandMatches = demandMatches
+    .filter(d => matchPassesSharedFilters(d.demand, d.demand))
+    .filter(d => (matchTierFilter === 'all' || getScoreTier(d.best_score) === matchTierFilter))
+    .filter(d => !matchesQueryLower
+      || matchProductHay(d.demand).includes(matchesQueryLower)
+      || d.offers.some(o => matchProductHay(o.offer).includes(matchesQueryLower)))
+    .sort((a, b) => compareMatches(a.best_score, b.best_score, a.demand.created_at, b.demand.created_at));
+
+  const filteredOfferMatches = offerMatches
+    .filter(o => matchPassesSharedFilters(o.offer, o.offer))
+    .filter(o => (matchTierFilter === 'all' || getScoreTier(o.best_score) === matchTierFilter))
+    .filter(o => !matchesQueryLower
+      || matchProductHay(o.offer).includes(matchesQueryLower)
+      || o.demands.some(d => matchProductHay(d.demand).includes(matchesQueryLower)))
+    .sort((a, b) => compareMatches(a.best_score, b.best_score, a.offer.created_at, b.offer.created_at));
 
   const matchCounts = {
     all: matches.length,
@@ -1208,10 +1417,15 @@ function App() {
               </div>
               {isExpanded && (
                 <div style={{ padding: '0 16px 12px' }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Offres correspondantes :</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Offres correspondantes (cliquez pour comparer) :</div>
                   {item.offers.map((o) => (
-                    <div key={o.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #22c55e', paddingLeft: 12 }}>
-                      {renderMatchProduct(o.offer, o.score, true)}
+                    <div
+                      key={o.match_id}
+                      className="match-offer-row"
+                      style={{ marginBottom: 8, borderLeft: '3px solid #22c55e', paddingLeft: 12, cursor: 'pointer' }}
+                      onClick={() => openPairMatchDetail(o.offer, item.demand, o.score, o.match_id)}
+                    >
+                      {renderMatchProduct(o.offer, o.score, false)}
                     </div>
                   ))}
                 </div>
@@ -1250,10 +1464,15 @@ function App() {
               </div>
               {isExpanded && (
                 <div style={{ padding: '0 16px 12px' }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Demandes correspondantes :</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#64748b' }}>Demandes correspondantes (cliquez pour comparer) :</div>
                   {item.demands.map((d) => (
-                    <div key={d.match_id} style={{ marginBottom: 8, borderLeft: '3px solid #f59e0b', paddingLeft: 12 }}>
-                      {renderMatchProduct(d.demand, d.score, true)}
+                    <div
+                      key={d.match_id}
+                      className="match-offer-row"
+                      style={{ marginBottom: 8, borderLeft: '3px solid #f59e0b', paddingLeft: 12, cursor: 'pointer' }}
+                      onClick={() => openPairMatchDetail(item.offer, d.demand, d.score, d.match_id)}
+                    >
+                      {renderMatchProduct(d.demand, d.score, false)}
                     </div>
                   ))}
                 </div>
@@ -1282,6 +1501,26 @@ function App() {
   const renderMatches = () => (
     <>
       <div className="card">
+        {/* Free-text search + sort */}
+        <div className="filter-row-compact">
+          <input
+            type="search"
+            className="free-search-input"
+            placeholder="Rechercher titre, sender, téléphone, quartier…"
+            value={matchesQuery}
+            onChange={(e) => setMatchesQuery(e.target.value)}
+          />
+          <label className="compact-filter">
+            <span>Tri</span>
+            <select value={matchesSort} onChange={(e) => setMatchesSort(e.target.value as any)}>
+              <option value="score_desc">Meilleur score</option>
+              <option value="score_asc">Moins bon score</option>
+              <option value="newest">Plus récents</option>
+              <option value="oldest">Plus anciens</option>
+            </select>
+          </label>
+        </div>
+
         {/* Sub-view: Demandes → Offres → Tous */}
         <div className="filter-row">
           <div className="filters">
@@ -1439,7 +1678,7 @@ function App() {
   const tabConfig: { key: TabType; label: string; count: number }[] = [
     { key: 'matches', label: 'Matches', count: matches.length },
     { key: 'products', label: 'Products', count: realProducts.length },
-    { key: 'posts', label: 'Posts', count: products.length },
+    { key: 'posts', label: 'Raw Posts', count: rawMessagesCount || rawMessages.length },
     { key: 'aggregated', label: 'Aggregated', count: aggregatedPosts.length },
   ];
 
@@ -1858,6 +2097,60 @@ function App() {
                 )}
                 <div className="dialog-sender">From: {selectedPost.sender} — {formatDate(selectedPost.created_at)}</div>
                 <div className="dialog-description">{selectedPost.description}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Raw Message Detail Dialog */}
+        {selectedRawMessage && (
+          <div className="dialog-overlay" onClick={() => setSelectedRawMessage(null)}>
+            <div className="dialog" onClick={(e) => e.stopPropagation()}>
+              <button className="dialog-close" onClick={() => setSelectedRawMessage(null)}><X size={20} /></button>
+              <div className="dialog-header">
+                <div className="post-badges">
+                  <span className={`badge ${rawStatusClass(selectedRawMessage.status)}`}>{rawStatusLabel(selectedRawMessage.status)}</span>
+                  {selectedRawMessage.cluster_type && selectedRawMessage.cluster_type !== 'ambiguous' && (
+                    <span className={`badge ${selectedRawMessage.cluster_type === 'offer' ? 'badge-offer' : 'badge-demand'}`}>
+                      {selectedRawMessage.cluster_type}
+                    </span>
+                  )}
+                  {selectedRawMessage.source_mode && selectedRawMessage.source_mode !== 'live' && (
+                    <span className="badge badge-source">{selectedRawMessage.source_mode}</span>
+                  )}
+                </div>
+                <h2>Raw message #{selectedRawMessage.id}</h2>
+                <div className="dialog-sub">
+                  Cluster #{selectedRawMessage.cluster_id ?? '—'}
+                  {selectedRawMessage.cluster_duplicate_count && selectedRawMessage.cluster_duplicate_count > 1 && (
+                    <> · {selectedRawMessage.cluster_duplicate_count} messages, {selectedRawMessage.cluster_distinct_senders} senders distincts</>
+                  )}
+                </div>
+              </div>
+              <div className="dialog-body">
+                {selectedRawMessage.sender_phone && (
+                  <div className="dialog-phone"><Phone size={16} /> <strong>{selectedRawMessage.sender_phone}</strong></div>
+                )}
+                <div className="dialog-sender">
+                  From: {selectedRawMessage.sender} — {formatDate(selectedRawMessage.created_at)}
+                </div>
+                {selectedRawMessage.group_name && (
+                  <div className="dialog-group"><MessageSquare size={14} /> Group: {selectedRawMessage.group_name}</div>
+                )}
+                {selectedRawMessage.listing_id && (
+                  <div
+                    className="linked-listing-hint"
+                    style={{ margin: '12px 0', cursor: 'pointer' }}
+                    onClick={() => {
+                      setSelectedRawMessage(null);
+                      openMatchProductDetail(selectedRawMessage.listing_id!);
+                    }}
+                  >
+                    <strong>→ Listing #{selectedRawMessage.listing_id}</strong> {selectedRawMessage.listing_title}
+                    {selectedRawMessage.listing_price && ` — ${formatCFA(Number(selectedRawMessage.listing_price))}`}
+                  </div>
+                )}
+                <div className="dialog-description raw-text-full">{selectedRawMessage.text}</div>
               </div>
             </div>
           </div>

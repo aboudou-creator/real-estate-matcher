@@ -561,6 +561,124 @@
   outline: none;
 }
 
+.match-offer-row {
+  transition: background 0.12s ease, transform 0.12s ease;
+  border-radius: 6px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.match-offer-row:hover {
+  background: rgba(99,102,241,0.06);
+  transform: translateX(2px);
+}
+
+/* ── Free-text search + sort controls (Raw Posts, Products, Matches) ── */
+.free-search-input {
+  flex: 1 1 220px;
+  min-width: 200px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.free-search-input::placeholder { color: #64748b; }
+
+.free-search-input:focus {
+  outline: none;
+  border-color: rgba(99,102,241,0.55);
+  background: rgba(255,255,255,0.06);
+}
+
+/* ── Raw Post status badges ── */
+.badge-status-classified {
+  background: rgba(34,197,94,0.18);
+  color: #86efac;
+  border: 1px solid rgba(34,197,94,0.35);
+}
+.badge-status-rejected {
+  background: rgba(239,68,68,0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239,68,68,0.30);
+}
+.badge-status-partial {
+  background: rgba(245,158,11,0.15);
+  color: #fcd34d;
+  border: 1px solid rgba(245,158,11,0.30);
+}
+.badge-status-pending {
+  background: rgba(100,116,139,0.20);
+  color: #cbd5e1;
+  border: 1px solid rgba(100,116,139,0.35);
+}
+.badge-source {
+  background: rgba(99,102,241,0.14);
+  color: #c7d2fe;
+  border: 1px solid rgba(99,102,241,0.30);
+}
+.badge-duplicate-copy {
+  background: rgba(100,116,139,0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(100,116,139,0.25);
+  font-style: italic;
+}
+
+/* ── Linked-listing pill on a raw post card ── */
+.linked-listing-hint {
+  display: inline-block;
+  padding: 6px 12px;
+  margin: 6px 0 8px;
+  border-radius: 8px;
+  background: rgba(99,102,241,0.10);
+  border: 1px solid rgba(99,102,241,0.25);
+  color: #c7d2fe;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.linked-listing-hint:hover {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.45);
+}
+
+/* ── Raw text preview (card) + full (dialog) ── */
+.raw-text-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+.raw-text-full {
+  white-space: pre-wrap;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(15,23,42,0.5);
+  border: 1px solid rgba(255,255,255,0.06);
+  margin-top: 10px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+/* Dialog sub-title under the main h2 (used by Raw Message dialog) */
+.dialog-sub {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
 .filter-select {
   padding: 7px 12px;
   border: 1px solid rgba(255,255,255,0.08);
